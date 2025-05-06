@@ -7,11 +7,12 @@ load_dotenv()
 app = FastAPI()
 
 # Allow CORS from your Vercel frontend
-origins = ["https://your-vercel-app.vercel.app"]
+origins = ["https://surgical-analytics.vercel.app"]
+
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
