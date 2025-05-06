@@ -23,8 +23,11 @@ API_SECRET = os.getenv("API_SECRET")
 # ✅ Middleware to check x-api-key
 @app.middleware("http")
 async def verify_token(request: Request, call_next):
-    # Let OPTIONS through without checking the token (CORS preflight)
     if request.method == "OPTIONS":
+        return await call_next(request)
+
+    # Allow unauthenticated access to the root or ping for health checks
+    if request.url.path in ["/", "/ping"]:
         return await call_next(request)
 
     token = request.headers.get("x-api-key")
@@ -34,6 +37,12 @@ async def verify_token(request: Request, call_next):
     return await call_next(request)
 
 
+
 @app.get("/ping")
 def ping():
     return {"message": "pong"}
+
+
+@app.get("/blocks")
+def get_blocks(request: Request):
+    return {"message": "block utilization will go here"}
