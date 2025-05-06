@@ -11,7 +11,7 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["https://surgical-analytics.vercel.app"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -20,20 +20,20 @@ app.add_middleware(
 API_SECRET = os.getenv("API_SECRET")
 
 # ✅ Middleware to check x-api-key
-# @app.middleware("http")
-# async def verify_token(request: Request, call_next):
-#     if request.method == "OPTIONS":
-#         return await call_next(request)
+@app.middleware("http")
+async def verify_token(request: Request, call_next):
+    if request.method == "OPTIONS":
+        return await call_next(request)
 
-#     # Allow unauthenticated access to the root or ping for health checks
-#     if request.url.path in ["/", "/ping"]:
-#         return await call_next(request)
+    # Allow unauthenticated access to the root or ping for health checks
+    if request.url.path in ["/", "/ping"]:
+        return await call_next(request)
 
-#     token = request.headers.get("x-api-key")
-#     if token != API_SECRET:
-#         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or missing API token")
+    token = request.headers.get("x-api-key")
+    if token != API_SECRET:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or missing API token")
     
-#     return await call_next(request)
+    return await call_next(request)
 
 
 
