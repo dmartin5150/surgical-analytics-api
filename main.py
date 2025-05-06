@@ -23,10 +23,16 @@ API_SECRET = os.getenv("API_SECRET")
 # ✅ Middleware to check x-api-key
 @app.middleware("http")
 async def verify_token(request: Request, call_next):
+    # Let OPTIONS through without checking the token (CORS preflight)
+    if request.method == "OPTIONS":
+        return await call_next(request)
+
     token = request.headers.get("x-api-key")
     if token != API_SECRET:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or missing API token")
+    
     return await call_next(request)
+
 
 @app.get("/ping")
 def ping():
