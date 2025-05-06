@@ -11,7 +11,8 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://surgical-analytics.vercel.app"],
+    allow_origins=["https://surgical-analytics.vercel.app"],  # exact match only
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
