@@ -15,15 +15,19 @@ profiles_collection = db["surgeon_profiles"]
 def get_week_of_month(date):
     first_day = date.replace(day=1)
     return ((date.day + first_day.weekday() - 1) // 7) + 1
-
 @router.get("/surgeons/profiles")
 def generate_profiles(start_date: str, end_date: str):
     start = datetime.fromisoformat(start_date)
     end = datetime.fromisoformat(end_date)
 
+    print(f"⏳ Generating profiles from {start} to {end}")
+
+    # Fetch cases in date range
     cases = list(cases_collection.find({
         "procedureDate": {"$gte": start, "$lte": end}
     }))
+
+    print(f"📦 {len(cases)} cases found in date range")
 
     provider_profiles = {}
 
@@ -32,6 +36,7 @@ def generate_profiles(start_date: str, end_date: str):
         date_created = case.get("dateCreated")
 
         if not (procedure_date and date_created):
+            print("⚠️ Skipping case without procedureDate or dateCreated")
             continue
 
         procedure_date = datetime.fromisoformat(
@@ -41,14 +46,7 @@ def generate_profiles(start_date: str, end_date: str):
             date_created["$date"] if isinstance(date_created, dict) else date_created
         )
 
-
-        if not (procedure_date and date_created):
-            continue
-
-        procedure_date = procedure_date["$date"] if isinstance(procedure_date, dict) else procedure_date
-        date_created = date_created["$date"] if isinstance(date_created, dict) else date_created
-
-        lead_time = (datetime.fromisoformat(procedure_date) - datetime.fromisoformat(date_created)).days
+        lead_time = (procedure_date - date_created).days
         duration = int(case.get("duration", 0))
 
         for proc in case.get("procedures", []):
@@ -60,6 +58,7 @@ def generate_profiles(start_date: str, end_date: str):
             name = proc.get("providerName", "Unknown")
 
             if npi not in provider_profiles:
+                print(f"👤 New surgeon found: {npi} ({name})")
                 provider_profiles[npi] = {
                     "surgeonId": npi,
                     "providerName": name,
@@ -67,15 +66,13 @@ def generate_profiles(start_date: str, end_date: str):
                     "timeUsageByDayAndWeek": defaultdict(list)
                 }
 
-            # Lead time per procedure
             provider_profiles[npi]["leadTimeByProcedure"][pid].append(lead_time)
 
-            # Time usage per (weekday, weekOfMonth)
-            dt = datetime.fromisoformat(procedure_date)
-            key = f"{dt.weekday()}-{get_week_of_month(dt)}"
+            key = f"{procedure_date.weekday()}-{get_week_of_month(procedure_date)}"
             provider_profiles[npi]["timeUsageByDayAndWeek"][key].append(duration)
 
-    # Convert to stats and save
+    print(f"🧠 Profiles gathered for {len(provider_profiles)} surgeons")
+
     results = []
 
     for profile in provider_profiles.values():
@@ -101,9 +98,13 @@ def generate_profiles(start_date: str, end_date: str):
                     "stdMinutes": round(stdev(mins), 2)
                 }
 
-        # Save to DB
-        profiles_collection.insert_one(stat_profile)
-        results.append(stat_profile)
+        if stat_profile["leadTimeByProcedure"] or stat_profile["timeUsageByDayAndWeek"]:
+            profiles_collection.insert_one(stat_profile)
+            print(f"✅ Inserted profile for {profile['surgeonId']}")
+            results.append(stat_profile)
+        else:
+            print(f"⚠️ Skipping profile for {profile['surgeonId']} — no valid stats")
+
+    print(f"🎯 {len(results)} profiles inserted")
 
     return {"profilesCreated": len(results)}
-surgeon_profiles_router = router
