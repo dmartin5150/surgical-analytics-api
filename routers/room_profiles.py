@@ -5,6 +5,8 @@ from statistics import mean, stdev
 from datetime import datetime
 import os
 
+from utils.time_utils import to_cst, minutes_within_block_window
+
 router = APIRouter()
 
 client = MongoClient(os.getenv("MONGODB_URI"))
@@ -34,13 +36,16 @@ def generate_room_profiles(start_date: str, end_date: str):
         procedure_date = case.get("procedureDate")
         duration = int(case.get("duration", 0))
 
-        if not room or not procedure_date:
+        start_raw = case.get("startTime")
+        end_raw = case.get("endTime")
+
+        if not room or not procedure_date or not start_raw or not end_raw:
             continue
 
         if isinstance(procedure_date, dict):
             procedure_date = datetime.fromisoformat(procedure_date["$date"])
 
-        key = f"{procedure_date.weekday()}-{get_week_of_month(procedure_date)}"
+        weekday_key = f"{procedure_date.weekday()}-{get_week_of_month(procedure_date)}"
 
         if room not in room_profiles:
             room_profiles[room] = {
@@ -48,13 +53,22 @@ def generate_room_profiles(start_date: str, end_date: str):
                 "profileMonth": start.strftime("%Y-%m"),
                 "usageByDayAndWeek": defaultdict(lambda: {
                     "durations": [],
+                    "utilizationMinutes": 0,
                     "surgeonCounts": defaultdict(int),
                     "procedureCounts": defaultdict(int)
                 })
             }
 
-        bucket = room_profiles[room]["usageByDayAndWeek"][key]
+        bucket = room_profiles[room]["usageByDayAndWeek"][weekday_key]
+
+        # Add total case duration
         bucket["durations"].append(duration)
+
+        # Add utilization time (converted to CST and clipped to 7:00–15:30)
+        start_cst = to_cst(start_raw)
+        end_cst = to_cst(end_raw)
+        util_minutes = minutes_within_block_window(start_cst, end_cst)
+        bucket["utilizationMinutes"] += util_minutes
 
         for proc in case.get("procedures", []):
             if not proc.get("primary"):
@@ -70,7 +84,6 @@ def generate_room_profiles(start_date: str, end_date: str):
 
     print(f"🧠 Building stats for {len(room_profiles)} rooms")
 
-    # Finalize and insert
     results = []
 
     for profile in room_profiles.values():
@@ -83,12 +96,11 @@ def generate_room_profiles(start_date: str, end_date: str):
         for key, data in profile["usageByDayAndWeek"].items():
             usage_entry = {}
             durations = data["durations"]
+            total_cases = len(durations)
 
-            if len(durations) > 1:
+            if total_cases > 1:
                 usage_entry["meanMinutes"] = round(mean(durations), 2)
                 usage_entry["stdMinutes"] = round(stdev(durations), 2)
-
-            total_cases = len(durations)
 
             usage_entry["surgeonFrequency"] = {
                 npi: {
@@ -105,6 +117,9 @@ def generate_room_profiles(start_date: str, end_date: str):
                 }
                 for pid, count in data["procedureCounts"].items()
             }
+
+            # Add utilization rate (based on 510 available minutes)
+            usage_entry["utilizationRate"] = round(data["utilizationMinutes"] / (total_cases * 510), 3)
 
             finalized["usageByDayAndWeek"][key] = usage_entry
 
