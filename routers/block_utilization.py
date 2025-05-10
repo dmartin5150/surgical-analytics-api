@@ -8,7 +8,7 @@ router = APIRouter()
 
 client = MongoClient(os.getenv("MONGODB_URI"))
 db = client["surgical-analytics"]
-block_collection = db["blocks"]
+block_collection = db["block"]
 cases_collection = db["cases"]
 util_collection = db["block_utilization"]
 
