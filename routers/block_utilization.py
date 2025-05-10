@@ -16,8 +16,9 @@ def get_week_of_month(date: datetime) -> int:
     return ((date.day + date.replace(day=1).weekday() - 1) // 7) + 1
 
 def daterange(start_date, end_date):
-    for n in range((end_date - start_date).days + 1):
-        yield start_date + timedelta(days=n)
+    delta = end_date - start_date
+    for i in range(delta.days + 1):
+        yield start_date + timedelta(days=i)
 
 @router.get("/blocks/utilization")
 def generate_block_utilization(start_date: str, end_date: str):
@@ -26,102 +27,98 @@ def generate_block_utilization(start_date: str, end_date: str):
     print(f"📅 Calculating block utilization from {start.date()} to {end.date()}")
 
     blocks = list(block_collection.find({"type": "Surgeon"}))
-    print(f"🔍 Loaded {len(blocks)} surgeon blocks")
+    print(f"🔍 {len(blocks)} surgeon blocks loaded")
 
     total_inserted = 0
 
     for block in blocks:
-        block_start_raw = block.get("blockStartDate")
-        block_end_raw = block.get("blockEndDate")
-        if not (block_start_raw and block_end_raw):
-            print(f"⚠️ Skipping block without start/end dates: {block.get('_id')}")
-            continue
-
-        try:
-            block_start = datetime.fromisoformat(block_start_raw.replace("Z", "+00:00"))
-            block_end = datetime.fromisoformat(block_end_raw.replace("Z", "+00:00"))
-        except Exception as e:
-            print(f"❌ Failed to parse block dates for block {block.get('_id')}: {e}")
-            continue
-
         room = block.get("room")
         owner_npis = block.get("owner", {}).get("npis", [])
 
         for freq in block.get("frequencies", []):
             dow = freq.get("dowApplied")
             weeks = freq.get("weeksOfMonth", [])
-            if dow is None or not weeks:
-                continue
 
-            try:
-                block_start_time = to_cst(freq["blockStartTime"]).time()
-                block_end_time = to_cst(freq["blockEndTime"]).time()
-            except Exception as e:
-                print(f"❌ Skipping frequency with invalid time: {e}")
-                continue
+            for week in weeks:
+                block_start_raw = week.get("blockStartDate")
+                block_end_raw = week.get("blockEndDate")
+                block_start_time_raw = week.get("blockStartTime")
+                block_end_time_raw = week.get("blockEndTime")
 
-            block_duration = int(
-                (datetime.combine(datetime.today(), block_end_time) -
-                 datetime.combine(datetime.today(), block_start_time)).total_seconds() / 60)
-
-            for day in daterange(start, end):
-                if not (block_start.date() <= day.date() <= block_end.date()):
-                    continue
-                if day.weekday() != dow:
-                    continue
-                if get_week_of_month(day) not in weeks:
+                if not (block_start_raw and block_end_raw and block_start_time_raw and block_end_time_raw):
+                    print("⚠️ Missing block timing fields, skipping")
                     continue
 
-                block_start_cst = datetime.combine(day.date(), block_start_time).astimezone(to_cst("2024-01-01T00:00:00Z").tzinfo)
-                block_end_cst = datetime.combine(day.date(), block_end_time).astimezone(to_cst("2024-01-01T00:00:00Z").tzinfo)
+                try:
+                    block_start = datetime.fromisoformat(block_start_raw.replace("Z", "+00:00"))
+                    block_end = datetime.fromisoformat(block_end_raw.replace("Z", "+00:00"))
+                    block_start_time = to_cst(block_start_time_raw).time()
+                    block_end_time = to_cst(block_end_time_raw).time()
+                except Exception as e:
+                    print(f"❌ Date parsing error: {e}")
+                    continue
 
-                day_start = datetime.combine(day.date(), datetime.min.time())
-                day_end = datetime.combine(day.date(), datetime.max.time())
+                block_duration = int((datetime.combine(datetime.today(), block_end_time) -
+                                      datetime.combine(datetime.today(), block_start_time)).total_seconds() / 60)
 
-                matching_cases = list(cases_collection.find({
-                    "procedureDate": {"$gte": day_start, "$lte": day_end},
-                    "procedures.primary": True
-                }))
+                for day in daterange(start, end):
+                    if not (block_start.date() <= day.date() <= block_end.date()):
+                        continue
+                    if day.weekday() != dow:
+                        continue
+                    if get_week_of_month(day) not in weeks:
+                        continue
 
-                in_room_minutes = 0
-                anywhere_minutes = 0
+                    block_start_cst = datetime.combine(day.date(), block_start_time).astimezone(to_cst("2024-01-01T00:00:00Z").tzinfo)
+                    block_end_cst = datetime.combine(day.date(), block_end_time).astimezone(to_cst("2024-01-01T00:00:00Z").tzinfo)
 
-                for case in matching_cases:
-                    for proc in case.get("procedures", []):
-                        if not proc.get("primary") or proc.get("primaryNpi") not in owner_npis:
-                            continue
+                    day_start = datetime.combine(day.date(), datetime.min.time())
+                    day_end = datetime.combine(day.date(), datetime.max.time())
 
-                        start_time = to_cst(case.get("startTime"))
-                        end_time = to_cst(case.get("endTime"))
+                    matching_cases = list(cases_collection.find({
+                        "procedureDate": {"$gte": day_start, "$lte": day_end},
+                        "procedures.primary": True
+                    }))
 
-                        overlap_minutes = minutes_within_block_window(start_time, end_time, block_start_cst, block_end_cst)
-                        anywhere_minutes += overlap_minutes
-                        if case.get("room") == room:
-                            in_room_minutes += overlap_minutes
+                    in_room_minutes = 0
+                    anywhere_minutes = 0
 
-                utilization_doc = {
-                    "room": room,
-                    "date": day.strftime("%Y-%m-%d"),
-                    "surgeons": owner_npis,
-                    "dow": dow,
-                    "weekOfMonth": get_week_of_month(day),
-                    "blockStartTime": block_start_time.strftime("%H:%M"),
-                    "blockEndTime": block_end_time.strftime("%H:%M"),
-                    "blockMinutes": block_duration,
-                    "usedInRoom": in_room_minutes,
-                    "usedAnywhere": anywhere_minutes,
-                    "inRoomUtilization": round(in_room_minutes / block_duration, 3) if block_duration else 0,
-                    "anywhereUtilization": round(anywhere_minutes / block_duration, 3) if block_duration else 0
-                }
+                    for case in matching_cases:
+                        for proc in case.get("procedures", []):
+                            if not proc.get("primary") or proc.get("primaryNpi") not in owner_npis:
+                                continue
 
-                util_collection.replace_one(
-                    {"room": room, "date": utilization_doc["date"], "surgeons": owner_npis},
-                    utilization_doc,
-                    upsert=True
-                )
-                total_inserted += 1
+                            start_cst = to_cst(case.get("startTime"))
+                            end_cst = to_cst(case.get("endTime"))
 
-    print(f"✅ {total_inserted} block utilization records inserted/updated")
+                            overlap_minutes = minutes_within_block_window(start_cst, end_cst, block_start_cst, block_end_cst)
+                            anywhere_minutes += overlap_minutes
+                            if case.get("room") == room:
+                                in_room_minutes += overlap_minutes
+
+                    utilization_doc = {
+                        "room": room,
+                        "date": day.strftime("%Y-%m-%d"),
+                        "surgeons": owner_npis,
+                        "dow": dow,
+                        "weekOfMonth": get_week_of_month(day),
+                        "blockStartTime": block_start_time.strftime("%H:%M"),
+                        "blockEndTime": block_end_time.strftime("%H:%M"),
+                        "blockMinutes": block_duration,
+                        "usedInRoom": in_room_minutes,
+                        "usedAnywhere": anywhere_minutes,
+                        "inRoomUtilization": round(in_room_minutes / block_duration, 3) if block_duration else 0,
+                        "anywhereUtilization": round(anywhere_minutes / block_duration, 3) if block_duration else 0
+                    }
+
+                    util_collection.replace_one(
+                        {"room": room, "date": utilization_doc["date"], "surgeons": owner_npis},
+                        utilization_doc,
+                        upsert=True
+                    )
+                    total_inserted += 1
+
+    print(f"✅ {total_inserted} block utilization records inserted or updated.")
     return {"recordsWritten": total_inserted}
 
 block_utilization_router = router
