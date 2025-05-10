@@ -123,7 +123,9 @@ def generate_room_profiles(start_date: str, end_date: str):
 
             finalized["usageByDayAndWeek"][key] = usage_entry
 
-        room_profiles_collection.insert_one(finalized)
+        room_profiles_collection.replace_one({"room": finalized["room"], "profileMonth": finalized["profileMonth"]},
+            finalized, upsert=True)
+
         print(f"✅ Profile saved for room {profile['room']}")
         results.append(finalized)
 

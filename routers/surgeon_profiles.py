@@ -107,7 +107,10 @@ def generate_profiles(start_date: str, end_date: str):
                 }
 
         if stat_profile["leadTimeByProcedure"] or stat_profile["timeUsageByDayAndWeek"]:
-            profiles_collection.insert_one(stat_profile)
+            profiles_collection.replace_one(
+            {"surgeonId": stat_profile["surgeonId"], "profileMonth": stat_profile["profileMonth"]},
+                stat_profile, upsert=True)
+
             print(f"✅ Inserted profile for {profile['surgeonId']}")
             results.append(stat_profile)
         else:
