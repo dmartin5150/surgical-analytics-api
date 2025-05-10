@@ -88,7 +88,9 @@ def generate_block_utilization(start_date: str, end_date: str):
                 anywhere_minutes = 0
 
                 for case in matching_cases:
+                    print('matching case:', case)
                     for proc in case.get("procedures", []):
+                        print('matching proc:', proc)
                         if not proc.get("primary") or proc.get("primaryNpi") not in owner_npis:
                             continue
 
