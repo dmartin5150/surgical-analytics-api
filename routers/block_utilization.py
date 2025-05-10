@@ -24,7 +24,7 @@ def daterange(start_date, end_date):
 def generate_block_utilization(start_date: str, end_date: str):
     start = datetime.fromisoformat(start_date)
     end = datetime.fromisoformat(end_date)
-    print(f"📅 Calculating block utilization from {start.date()} to {end.date()}")
+    print(f"🗓️  Calculating block utilization from {start.date()} to {end.date()}")
 
     blocks = list(block_collection.find({"type": "Surgeon"}))
     print(f"🔍 {len(blocks)} surgeon blocks loaded")
@@ -33,57 +33,49 @@ def generate_block_utilization(start_date: str, end_date: str):
 
     for block in blocks:
         room = block.get("room")
-        owner = block.get("owner", [])
-        owner_npis = []
-        if isinstance(owner, list):
-            for o in owner:
-                owner_npis.extend(o.get("npis", []))
+        owners = block.get("owner", [])
+        owner_npis = [npi for o in owners for npi in o.get("npis", [])]
 
         for freq in block.get("frequencies", []):
-            dow = freq.get("dowApplied")  # 0 = Sunday
+            dow = freq.get("dowApplied")
+            weeks_of_month = freq.get("weeksOfMonth", [])
 
-            valid_windows = []
-            for window in freq.get("weeksOfMonth", []):
-                if isinstance(window, int):
-                    continue  # week markers, not blocks
+            for window in weeks_of_month:
                 if not isinstance(window, dict):
                     print(f"⚠️ Skipping invalid weeksOfMonth item: {window}")
                     continue
 
                 required_keys = ["blockStartDate", "blockStartTime", "blockEndDate", "blockEndTime"]
                 if not all(k in window for k in required_keys):
-                    print(f"⚠️ Skipping incomplete window: {window}")
+                    print(f"⚠️ Skipping incomplete block window: {window}")
                     continue
 
                 try:
-                    block_start = datetime.fromisoformat(window["blockStartDate"].replace("Z", "+00:00"))
-                    block_end = datetime.fromisoformat(window["blockEndDate"].replace("Z", "+00:00"))
-                    start_time = to_cst(window["blockStartTime"]).time()
-                    end_time = to_cst(window["blockEndTime"]).time()
-                    valid_windows.append((block_start, block_end, start_time, end_time))
+                    block_start_date = datetime.fromisoformat(window["blockStartDate"].replace("Z", "+00:00"))
+                    block_end_date = datetime.fromisoformat(window["blockEndDate"].replace("Z", "+00:00"))
+                    block_start_time = to_cst(window["blockStartTime"]).time()
+                    block_end_time = to_cst(window["blockEndTime"]).time()
+                    block_duration = int(
+                        (datetime.combine(datetime.today(), block_end_time) -
+                         datetime.combine(datetime.today(), block_start_time)).total_seconds() / 60
+                    )
                 except Exception as e:
                     print(f"❌ Error parsing block window: {e}")
-
-            for block_start, block_end, block_start_time, block_end_time in valid_windows:
-                block_duration = int((datetime.combine(datetime.today(), block_end_time) - datetime.combine(datetime.today(), block_start_time)).total_seconds() / 60)
+                    continue
 
                 for day in daterange(start, end):
-                    if not (block_start.date() <= day.date() <= block_end.date()):
+                    if not (block_start_date.date() <= day.date() <= block_end_date.date()):
                         continue
                     if day.weekday() != dow:
+                        continue
+                    if get_week_of_month(day) not in weeks_of_month:
                         continue
 
                     block_start_cst = datetime.combine(day.date(), block_start_time).astimezone(to_cst("2024-01-01T00:00:00Z").tzinfo)
                     block_end_cst = datetime.combine(day.date(), block_end_time).astimezone(to_cst("2024-01-01T00:00:00Z").tzinfo)
 
-                    day_start = datetime.combine(day.date(), datetime.min.time())
-                    day_end = datetime.combine(day.date(), datetime.max.time())
-
                     matching_cases = list(cases_collection.find({
-                        "procedureDate": {
-                            "$gte": day_start,
-                            "$lte": day_end
-                        },
+                        "procedureDate": {"$gte": block_start_cst, "$lte": block_end_cst},
                         "procedures.primary": True
                     }))
 
@@ -97,8 +89,8 @@ def generate_block_utilization(start_date: str, end_date: str):
 
                             case_start = to_cst(case.get("startTime"))
                             case_end = to_cst(case.get("endTime"))
+                            overlap_minutes = minutes_within_block_window(case_start, case_end)
 
-                            overlap_minutes = minutes_within_block_window(case_start, case_end, block_start_cst, block_end_cst)
                             anywhere_minutes += overlap_minutes
                             if case.get("room") == room:
                                 in_room_minutes += overlap_minutes
