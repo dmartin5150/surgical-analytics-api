@@ -52,9 +52,13 @@ def generate_profiles(start_date: str, end_date: str):
             if not proc.get("primary"):
                 continue
 
-            npi = proc["primaryNpi"]
-            pid = proc["procedureId"]
+            npi = proc.get("primaryNpi")
+            pid = proc.get("procedureId")
             name = proc.get("providerName", "Unknown")
+
+            if not (npi and pid):
+                print(f"⚠️ Skipping procedure with missing fields in case {case.get('caseNumber')}")
+                continue
 
             if npi not in provider_profiles:
                 print(f"👤 New surgeon found: {npi} ({name})")
@@ -105,8 +109,7 @@ def generate_profiles(start_date: str, end_date: str):
             print(f"⚠️ Skipping profile for {profile['surgeonId']} — no valid stats")
 
     print(f"🎯 {len(results)} profiles inserted")
-
     return {"profilesCreated": len(results)}
 
-# Make router available for main.py
+# Make router available to main.py
 surgeon_profiles_router = router
