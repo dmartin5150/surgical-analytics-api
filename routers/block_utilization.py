@@ -16,9 +16,8 @@ def get_week_of_month(date: datetime) -> int:
     return ((date.day + date.replace(day=1).weekday() - 1) // 7) + 1
 
 def daterange(start_date, end_date):
-    delta = end_date - start_date
-    for i in range(delta.days + 1):
-        yield start_date + timedelta(days=i)
+    for n in range((end_date - start_date).days + 1):
+        yield start_date + timedelta(days=n)
 
 @router.get("/blocks/utilization")
 def generate_block_utilization(start_date: str, end_date: str):
@@ -27,24 +26,43 @@ def generate_block_utilization(start_date: str, end_date: str):
     print(f"📅 Calculating block utilization from {start.date()} to {end.date()}")
 
     blocks = list(block_collection.find({"type": "Surgeon"}))
-    print(f"🔍 {len(blocks)} surgeon blocks loaded")
+    print(f"🔍 Loaded {len(blocks)} surgeon blocks")
 
     total_inserted = 0
 
     for block in blocks:
-        block_start = datetime.fromisoformat(block["blockStartDate"].replace("Z", "+00:00"))
-        block_end = datetime.fromisoformat(block["blockEndDate"].replace("Z", "+00:00"))
+        block_start_raw = block.get("blockStartDate")
+        block_end_raw = block.get("blockEndDate")
+        if not (block_start_raw and block_end_raw):
+            print(f"⚠️ Skipping block without start/end dates: {block.get('_id')}")
+            continue
+
+        try:
+            block_start = datetime.fromisoformat(block_start_raw.replace("Z", "+00:00"))
+            block_end = datetime.fromisoformat(block_end_raw.replace("Z", "+00:00"))
+        except Exception as e:
+            print(f"❌ Failed to parse block dates for block {block.get('_id')}: {e}")
+            continue
+
         room = block.get("room")
         owner_npis = block.get("owner", {}).get("npis", [])
 
         for freq in block.get("frequencies", []):
-            dow = freq.get("dowApplied")  # 0 = Sunday
+            dow = freq.get("dowApplied")
             weeks = freq.get("weeksOfMonth", [])
+            if dow is None or not weeks:
+                continue
 
-            # Extract block start/end times (ignore the date portion)
-            block_start_time = to_cst(freq["blockStartTime"]).time()
-            block_end_time = to_cst(freq["blockEndTime"]).time()
-            block_duration = int((datetime.combine(datetime.today(), block_end_time) - datetime.combine(datetime.today(), block_start_time)).total_seconds() / 60)
+            try:
+                block_start_time = to_cst(freq["blockStartTime"]).time()
+                block_end_time = to_cst(freq["blockEndTime"]).time()
+            except Exception as e:
+                print(f"❌ Skipping frequency with invalid time: {e}")
+                continue
+
+            block_duration = int(
+                (datetime.combine(datetime.today(), block_end_time) -
+                 datetime.combine(datetime.today(), block_start_time)).total_seconds() / 60)
 
             for day in daterange(start, end):
                 if not (block_start.date() <= day.date() <= block_end.date()):
@@ -54,19 +72,14 @@ def generate_block_utilization(start_date: str, end_date: str):
                 if get_week_of_month(day) not in weeks:
                     continue
 
-                # Define actual block datetime range (in CST)
                 block_start_cst = datetime.combine(day.date(), block_start_time).astimezone(to_cst("2024-01-01T00:00:00Z").tzinfo)
                 block_end_cst = datetime.combine(day.date(), block_end_time).astimezone(to_cst("2024-01-01T00:00:00Z").tzinfo)
 
-                # Fetch all cases on that day with overlapping time
                 day_start = datetime.combine(day.date(), datetime.min.time())
                 day_end = datetime.combine(day.date(), datetime.max.time())
 
                 matching_cases = list(cases_collection.find({
-                    "procedureDate": {
-                        "$gte": day_start,
-                        "$lte": day_end
-                    },
+                    "procedureDate": {"$gte": day_start, "$lte": day_end},
                     "procedures.primary": True
                 }))
 
@@ -78,11 +91,10 @@ def generate_block_utilization(start_date: str, end_date: str):
                         if not proc.get("primary") or proc.get("primaryNpi") not in owner_npis:
                             continue
 
-                        start = to_cst(case.get("startTime"))
-                        end = to_cst(case.get("endTime"))
+                        start_time = to_cst(case.get("startTime"))
+                        end_time = to_cst(case.get("endTime"))
 
-                        overlap_minutes = minutes_within_block_window(start, end, block_start_cst, block_end_cst)
-
+                        overlap_minutes = minutes_within_block_window(start_time, end_time, block_start_cst, block_end_cst)
                         anywhere_minutes += overlap_minutes
                         if case.get("room") == room:
                             in_room_minutes += overlap_minutes
@@ -109,7 +121,7 @@ def generate_block_utilization(start_date: str, end_date: str):
                 )
                 total_inserted += 1
 
-    print(f"✅ {total_inserted} block utilization records inserted or updated.")
+    print(f"✅ {total_inserted} block utilization records inserted/updated")
     return {"recordsWritten": total_inserted}
 
 block_utilization_router = router
