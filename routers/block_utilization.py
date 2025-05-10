@@ -4,7 +4,6 @@ from datetime import datetime, timedelta
 from utils.time_utils import to_cst, minutes_within_block_window
 import os
 import traceback
-import sys
 
 router = APIRouter()
 
@@ -35,24 +34,39 @@ def generate_block_utilization(start_date: str, end_date: str):
 
     for block in blocks:
         room = block.get("room")
-        owners = block.get("owner", [])
-        owner_npis = []
-        for owner in owners:
-            owner_npis.extend(owner.get("npis", []))
+        owner_npis = block.get("owner", [])
 
         for freq in block.get("frequencies", []):
-            weeks = freq.get("weeksOfMonth", [])
             dow = freq.get("dowApplied")
+            weeks_of_month = freq.get("weeksOfMonth", [])
+
+            block_window = None
+            for item in weeks_of_month:
+                if isinstance(item, dict):
+                    block_window = item
+                    break
+
+            if not block_window:
+                print(f"⚠️ Skipping frequency with no block window: {freq}")
+                continue
 
             try:
-                block_start = datetime.fromisoformat(freq["blockStartDate"].replace("Z", "+00:00"))
-                block_end = datetime.fromisoformat(freq["blockEndDate"].replace("Z", "+00:00"))
-                block_start_time = to_cst(freq["blockStartTime"]).time()
-                block_end_time = to_cst(freq["blockEndTime"]).time()
+                if isinstance(block_window["blockStartDate"], str):
+                    block_start = datetime.fromisoformat(block_window["blockStartDate"].replace("Z", "+00:00"))
+                else:
+                    block_start = block_window["blockStartDate"]
+
+                if isinstance(block_window["blockEndDate"], str):
+                    block_end = datetime.fromisoformat(block_window["blockEndDate"].replace("Z", "+00:00"))
+                else:
+                    block_end = block_window["blockEndDate"]
+
+                block_start_time = to_cst(block_window["blockStartTime"]).time()
+                block_end_time = to_cst(block_window["blockEndTime"]).time()
             except Exception as e:
                 print(f"⚠️ Skipping frequency due to parse error: {freq}")
                 print(f"❌ Skipping frequency due to parse error: {e}")
-                traceback.print_exc(file=sys.stdout)
+                traceback.print_exc()
                 continue
 
             block_duration = int((datetime.combine(datetime.today(), block_end_time) - datetime.combine(datetime.today(), block_start_time)).total_seconds() / 60)
@@ -62,7 +76,7 @@ def generate_block_utilization(start_date: str, end_date: str):
                     continue
                 if day.weekday() != dow:
                     continue
-                if get_week_of_month(day) not in [int(w) for w in weeks if isinstance(w, int)]:
+                if get_week_of_month(day) not in [int(w) for w in weeks_of_month if isinstance(w, int)]:
                     continue
 
                 block_start_cst = datetime.combine(day.date(), block_start_time).astimezone(to_cst("2024-01-01T00:00:00Z").tzinfo)
@@ -72,7 +86,10 @@ def generate_block_utilization(start_date: str, end_date: str):
                 day_end = datetime.combine(day.date(), datetime.max.time())
 
                 matching_cases = list(cases_collection.find({
-                    "procedureDate": {"$gte": day_start, "$lte": day_end},
+                    "procedureDate": {
+                        "$gte": day_start,
+                        "$lte": day_end
+                    },
                     "procedures.primary": True
                 }))
 
@@ -84,10 +101,11 @@ def generate_block_utilization(start_date: str, end_date: str):
                         if not proc.get("primary") or proc.get("primaryNpi") not in owner_npis:
                             continue
 
-                        case_start = to_cst(case.get("startTime"))
-                        case_end = to_cst(case.get("endTime"))
+                        start = to_cst(case.get("startTime"))
+                        end = to_cst(case.get("endTime"))
 
-                        overlap_minutes = minutes_within_block_window(case_start, case_end, block_start_cst, block_end_cst)
+                        overlap_minutes = minutes_within_block_window(start, end, block_start_cst, block_end_cst)
+
                         anywhere_minutes += overlap_minutes
                         if case.get("room") == room:
                             in_room_minutes += overlap_minutes
