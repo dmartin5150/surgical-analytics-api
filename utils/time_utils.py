@@ -14,9 +14,16 @@ CST = pytz.timezone("US/Central")
 from datetime import datetime
 import pytz
 
-def to_cst(dt_raw: str) -> datetime:
-    # Convert Zulu/UTC time to US Central Time
-    dt_utc = datetime.fromisoformat(dt_raw.replace("Z", "+00:00")).astimezone(pytz.UTC)
+
+def to_cst(dt_raw) -> datetime:
+    """Convert a UTC datetime (string or datetime object) to US Central Time."""
+    if isinstance(dt_raw, str):
+        dt_utc = datetime.fromisoformat(dt_raw.replace("Z", "+00:00")).astimezone(pytz.UTC)
+    elif isinstance(dt_raw, datetime):
+        dt_utc = dt_raw.astimezone(pytz.UTC)
+    else:
+        raise TypeError(f"Unsupported type for datetime conversion: {type(dt_raw)}")
+    
     return dt_utc.astimezone(pytz.timezone("US/Central"))
 
 
