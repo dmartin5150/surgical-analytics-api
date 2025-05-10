@@ -38,39 +38,29 @@ def generate_block_utilization(start_date: str, end_date: str):
 
         for freq in block.get("frequencies", []):
             dow = freq.get("dowApplied")
-            weeks_of_month = []
-            block_window = {}
-
-            for item in freq.get("weeksOfMonth", []):
-                if isinstance(item, int):
-                    weeks_of_month.append(int(item))
-                elif isinstance(item, dict):
-                    block_window = item
-
-            if not block_window:
-                print(f"⚠️ Skipping frequency with no block window: {freq}")
-                continue
+            weeks_of_month = [int(w) for w in freq.get("weeksOfMonth", []) if isinstance(w, int)]
 
             try:
-                if isinstance(block_window["blockStartDate"], str):
-                    block_start = datetime.fromisoformat(block_window["blockStartDate"].replace("Z", "+00:00"))
-                else:
-                    block_start = block_window["blockStartDate"]
+                block_start_raw = freq.get("blockStartDate")
+                block_end_raw = freq.get("blockEndDate")
+                block_start_time_raw = freq.get("blockStartTime")
+                block_end_time_raw = freq.get("blockEndTime")
 
-                if isinstance(block_window["blockEndDate"], str):
-                    block_end = datetime.fromisoformat(block_window["blockEndDate"].replace("Z", "+00:00"))
-                else:
-                    block_end = block_window["blockEndDate"]
+                block_start = datetime.fromisoformat(block_start_raw.replace("Z", "+00:00")) if isinstance(block_start_raw, str) else block_start_raw
+                block_end = datetime.fromisoformat(block_end_raw.replace("Z", "+00:00")) if isinstance(block_end_raw, str) else block_end_raw
+                block_start_time = to_cst(block_start_time_raw).time()
+                block_end_time = to_cst(block_end_time_raw).time()
 
-                block_start_time = to_cst(block_window["blockStartTime"]).time()
-                block_end_time = to_cst(block_window["blockEndTime"]).time()
             except Exception as e:
                 print(f"⚠️ Skipping frequency due to parse error: {freq}")
                 print(f"❌ Skipping frequency due to parse error: {e}")
                 traceback.print_exc()
                 continue
 
-            block_duration = int((datetime.combine(datetime.today(), block_end_time) - datetime.combine(datetime.today(), block_start_time)).total_seconds() / 60)
+            block_duration = int(
+                (datetime.combine(datetime.today(), block_end_time) -
+                 datetime.combine(datetime.today(), block_start_time)).total_seconds() / 60
+            )
 
             for day in daterange(start, end):
                 if not (block_start.date() <= day.date() <= block_end.date()):
