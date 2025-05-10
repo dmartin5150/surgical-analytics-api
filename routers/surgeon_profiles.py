@@ -15,6 +15,7 @@ profiles_collection = db["surgeon_profiles"]
 def get_week_of_month(date):
     first_day = date.replace(day=1)
     return ((date.day + first_day.weekday() - 1) // 7) + 1
+
 @router.get("/surgeons/profiles")
 def generate_profiles(start_date: str, end_date: str):
     start = datetime.fromisoformat(start_date)
@@ -39,12 +40,10 @@ def generate_profiles(start_date: str, end_date: str):
             print("⚠️ Skipping case without procedureDate or dateCreated")
             continue
 
-        procedure_date = datetime.fromisoformat(
-            procedure_date["$date"] if isinstance(procedure_date, dict) else procedure_date
-        )
-        date_created = datetime.fromisoformat(
-            date_created["$date"] if isinstance(date_created, dict) else date_created
-        )
+        if isinstance(procedure_date, dict):
+            procedure_date = datetime.fromisoformat(procedure_date["$date"])
+        if isinstance(date_created, dict):
+            date_created = datetime.fromisoformat(date_created["$date"])
 
         lead_time = (procedure_date - date_created).days
         duration = int(case.get("duration", 0))
@@ -108,4 +107,6 @@ def generate_profiles(start_date: str, end_date: str):
     print(f"🎯 {len(results)} profiles inserted")
 
     return {"profilesCreated": len(results)}
+
+# Make router available for main.py
 surgeon_profiles_router = router
