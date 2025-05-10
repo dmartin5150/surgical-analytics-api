@@ -31,16 +31,16 @@ def get_db():
     return mongo_client["surgical-analytics"]
 
 # API Key middleware
-@app.middleware("http")
-async def verify_token(request: Request, call_next):
-    if request.method == "OPTIONS" or request.url.path in ["/", "/ping"]:
-        return await call_next(request)
+# @app.middleware("http")
+# async def verify_token(request: Request, call_next):
+#     if request.method == "OPTIONS" or request.url.path in ["/", "/ping"]:
+#         return await call_next(request)
 
-    token = request.headers.get("x-api-key")
-    if token != API_SECRET:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or missing API token")
+#     token = request.headers.get("x-api-key")
+#     if token != API_SECRET:
+#         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or missing API token")
 
-    return await call_next(request)
+#     return await call_next(request)
 
 # Health check
 @app.get("/ping")
