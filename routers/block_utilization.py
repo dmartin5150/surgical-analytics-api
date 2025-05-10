@@ -25,7 +25,7 @@ def daterange(start_date, end_date):
 def generate_block_utilization(start_date: str, end_date: str):
     start = datetime.fromisoformat(start_date)
     end = datetime.fromisoformat(end_date)
-    print(f"📅 Calculating block utilization from {start.date()} to {end.date()}")
+    print(f"🗕️ Calculating block utilization from {start.date()} to {end.date()}")
 
     blocks = list(block_collection.find({"type": "Surgeon"}))
     print(f"🔍 {len(blocks)} surgeon blocks loaded")
@@ -38,13 +38,14 @@ def generate_block_utilization(start_date: str, end_date: str):
 
         for freq in block.get("frequencies", []):
             dow = freq.get("dowApplied")
-            weeks_of_month = freq.get("weeksOfMonth", [])
+            weeks_of_month = []
+            block_window = {}
 
-            block_window = None
-            for item in weeks_of_month:
-                if isinstance(item, dict):
+            for item in freq.get("weeksOfMonth", []):
+                if isinstance(item, int):
+                    weeks_of_month.append(int(item))
+                elif isinstance(item, dict):
                     block_window = item
-                    break
 
             if not block_window:
                 print(f"⚠️ Skipping frequency with no block window: {freq}")
@@ -76,7 +77,7 @@ def generate_block_utilization(start_date: str, end_date: str):
                     continue
                 if day.weekday() != dow:
                     continue
-                if get_week_of_month(day) not in [int(w) for w in weeks_of_month if isinstance(w, int)]:
+                if get_week_of_month(day) not in weeks_of_month:
                     continue
 
                 block_start_cst = datetime.combine(day.date(), block_start_time).astimezone(to_cst("2024-01-01T00:00:00Z").tzinfo)
