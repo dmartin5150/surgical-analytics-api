@@ -48,6 +48,7 @@ def generate_block_utilization(start_date: str, end_date: str):
                 block_start_time = to_cst(freq["blockStartTime"]).time()
                 block_end_time = to_cst(freq["blockEndTime"]).time()
             except Exception as e:
+                print(f"⚠️ Skipping frequency due to parse error: {freq}")
                 print(f"❌ Skipping frequency due to parse error: {e}")
                 continue
 
