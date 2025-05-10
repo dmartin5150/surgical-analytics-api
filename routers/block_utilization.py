@@ -86,7 +86,7 @@ def generate_block_utilization(start_date: str, end_date: str):
 
                 in_room_minutes = 0
                 anywhere_minutes = 0
-
+                print("matching cases:", matching_cases)
                 for case in matching_cases:
                     print('matching case:', case)
                     for proc in case.get("procedures", []):
