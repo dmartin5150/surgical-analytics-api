@@ -11,22 +11,15 @@ import pytz
 UTC = pytz.UTC
 CST = pytz.timezone("US/Central")
 
-def to_cst(dt_raw):
-    # Handle Mongo-style dict {"$date": "..."}
-    if isinstance(dt_raw, dict):
-        dt_raw = dt_raw["$date"]
+from datetime import datetime
+import pytz
 
-    # If it's already a datetime object, assume it's UTC
-    if isinstance(dt_raw, datetime):
-        return dt_raw.astimezone(CST)
+def to_cst(dt_raw: str) -> datetime:
+    # Convert Zulu/UTC time to US Central Time
+    dt_utc = datetime.fromisoformat(dt_raw.replace("Z", "+00:00")).astimezone(pytz.UTC)
+    return dt_utc.astimezone(pytz.timezone("US/Central"))
 
-    # Otherwise it's likely a string
-    if isinstance(dt_raw, str):
-        # Ensure Z is replaced with correct UTC offset
-        dt_utc = datetime.fromisoformat(dt_raw.replace("Z", "+00:00")).astimezone(UTC)
-        return dt_utc.astimezone(CST)
 
-    raise ValueError(f"Unsupported datetime format: {type(dt_raw)}")
 
 
 # Returns overlap in minutes between a case and the standard block window (7:00–15:30 CST)
