@@ -22,12 +22,9 @@ def generate_profiles(start_date: str, end_date: str):
     end = datetime.fromisoformat(end_date)
 
     print(f"⏳ Generating profiles from {start} to {end}")
-
-    # Fetch cases in date range
     cases = list(cases_collection.find({
         "procedureDate": {"$gte": start, "$lte": end}
     }))
-
     print(f"📦 {len(cases)} cases found in date range")
 
     provider_profiles = {}
@@ -65,11 +62,14 @@ def generate_profiles(start_date: str, end_date: str):
                 provider_profiles[npi] = {
                     "surgeonId": npi,
                     "providerName": name,
-                    "leadTimeByProcedure": defaultdict(list),
-                    "timeUsageByDayAndWeek": defaultdict(list)
+                    "leadTimeByProcedure": defaultdict(lambda: {"leadTimes": [], "durations": []}),
+                    "timeUsageByDayAndWeek": defaultdict(list),
+                    "totalProcedureCount": 0
                 }
 
-            provider_profiles[npi]["leadTimeByProcedure"][pid].append(lead_time)
+            provider_profiles[npi]["leadTimeByProcedure"][pid]["leadTimes"].append(lead_time)
+            provider_profiles[npi]["leadTimeByProcedure"][pid]["durations"].append(duration)
+            provider_profiles[npi]["totalProcedureCount"] += 1
 
             key = f"{procedure_date.weekday()}-{get_week_of_month(procedure_date)}"
             provider_profiles[npi]["timeUsageByDayAndWeek"][key].append(duration)
@@ -87,11 +87,16 @@ def generate_profiles(start_date: str, end_date: str):
             "timeUsageByDayAndWeek": {}
         }
 
-        for pid, times in profile["leadTimeByProcedure"].items():
-            if len(times) > 1:
+        total = profile["totalProcedureCount"]
+
+        for pid, data in profile["leadTimeByProcedure"].items():
+            if len(data["leadTimes"]) > 1:
                 stat_profile["leadTimeByProcedure"][pid] = {
-                    "mean": round(mean(times), 2),
-                    "std": round(stdev(times), 2)
+                    "mean": round(mean(data["leadTimes"]), 2),
+                    "std": round(stdev(data["leadTimes"]), 2),
+                    "frequency": len(data["leadTimes"]),
+                    "relativeFrequency": round(len(data["leadTimes"]) / total, 3),
+                    "avgDuration": round(mean(data["durations"]), 2)
                 }
 
         for key, mins in profile["timeUsageByDayAndWeek"].items():
@@ -111,5 +116,4 @@ def generate_profiles(start_date: str, end_date: str):
     print(f"🎯 {len(results)} profiles inserted")
     return {"profilesCreated": len(results)}
 
-# Make router available to main.py
 surgeon_profiles_router = router
