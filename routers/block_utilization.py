@@ -81,8 +81,13 @@ def generate_block_utilization(start_date: str, end_date: str):
                         "$gte": day_start,
                         "$lte": day_end
                     },
-                    "procedures.primary": True
+                    "procedures": {
+                        "$elemMatch": {
+                            "primary": True
+                        }
+                    }
                 }))
+
 
                 in_room_minutes = 0
                 anywhere_minutes = 0
