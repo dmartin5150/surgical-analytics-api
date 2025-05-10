@@ -6,6 +6,7 @@ import os
 
 # Import router
 from routers.surgeon_profiles import surgeon_profiles_router
+from routers.room_profiles import room_profiles_router
 
 # Load env variables
 load_dotenv()
@@ -70,3 +71,4 @@ def get_blocks():
 
 # Include surgeon profile router
 app.include_router(surgeon_profiles_router)
+app.include_router(room_profiles_router)
