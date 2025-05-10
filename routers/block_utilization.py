@@ -3,6 +3,7 @@ from pymongo import MongoClient
 from datetime import datetime, timedelta
 from utils.time_utils import to_cst, minutes_within_block_window
 import os
+import traceback
 
 router = APIRouter()
 
@@ -50,6 +51,7 @@ def generate_block_utilization(start_date: str, end_date: str):
             except Exception as e:
                 print(f"⚠️ Skipping frequency due to parse error: {freq}")
                 print(f"❌ Skipping frequency due to parse error: {e}")
+                traceback.print_exc() 
                 continue
 
             block_duration = int((datetime.combine(datetime.today(), block_end_time) - datetime.combine(datetime.today(), block_start_time)).total_seconds() / 60)
