@@ -108,3 +108,4 @@ def generate_profiles(start_date: str, end_date: str):
     print(f"🎯 {len(results)} profiles inserted")
 
     return {"profilesCreated": len(results)}
+surgeon_profiles_router = router
