@@ -13,7 +13,7 @@ router = APIRouter()
 
 client = MongoClient(os.getenv("MONGODB_URI"))
 db = client["surgical-analytics"]
-calendar_collection = db["calendars"]
+calendar_collection = db["calendar"]
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
