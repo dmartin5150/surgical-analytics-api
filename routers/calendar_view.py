@@ -106,4 +106,4 @@ def get_calendar_view(
             week.append(empty_day(weekdays[len(week)]))
 
     # Preview just the first 2 weeks for testing in the browser
-    return days_grid[:2]
+    return days_grid[:4]
