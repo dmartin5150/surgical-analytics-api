@@ -42,12 +42,16 @@ def get_calendar_view(
     start_date = date(year, month_num, 1)
     last_day = calendar.monthrange(year, month_num)[1]
     end_date = date(year, month_num, last_day)
+    # Convert to datetime.datetime for MongoDB
+    start_datetime = datetime.combine(start_date, datetime.min.time())
+    end_datetime = datetime.combine(end_date, datetime.max.time())
+
 
     logger.info(f"Fetching calendar for {month}, hospitalId={hospitalId}, unit={unit}")
     logger.info(f"Date range: {start_date} to {end_date}")
 
     matching_docs = list(calendar_collection.find({
-        "date": {"$gte": start_date, "$lte": end_date},
+        "date": {"$gte": start_datetime, "$lte": end_datetime},
         "hospitalId": hospitalId,
         "unit": unit
     }))
