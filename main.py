@@ -8,6 +8,7 @@ import os
 from routers.surgeon_profiles import surgeon_profiles_router
 from routers.room_profiles import room_profiles_router
 from routers.block_utilization import block_utilization_router
+from routers import calendar_view
 
 # Load env variables
 load_dotenv()
@@ -74,3 +75,4 @@ def get_blocks():
 app.include_router(surgeon_profiles_router)
 app.include_router(room_profiles_router)
 app.include_router(block_utilization_router)
+app.include_router(calendar_view.router)
