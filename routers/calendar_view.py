@@ -8,13 +8,15 @@ import logging
 from dotenv import load_dotenv
 
 load_dotenv()
-logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 client = MongoClient(os.getenv("MONGODB_URI"))
 db = client["surgical-analytics"]
 calendar_collection = db["calendars"]
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
 def get_weekday(date_str: str) -> str:
     date_obj = datetime.strptime(date_str, "%Y-%m-%d")
@@ -30,7 +32,7 @@ def empty_day(weekday: str) -> Dict[str, Any]:
 
 @router.get("/calendar/view")
 def get_calendar_view(
-    month: str = Query(...),
+    month: str = Query(..., example="2024-05"),
     hospitalId: str = Query(...),
     unit: str = Query(...)
 ):
@@ -44,42 +46,44 @@ def get_calendar_view(
     logger.info(f"Fetching calendar for {month}, hospitalId={hospitalId}, unit={unit}")
     logger.info(f"Date range: {start_date} to {end_date}")
 
-    raw_docs = list(calendar_collection.find({
+    matching_docs = list(calendar_collection.find({
+        "date": {"$gte": start_date, "$lte": end_date},
         "hospitalId": hospitalId,
-        "unit": unit,
-        "date": {"$gte": start_date, "$lte": end_date}
+        "unit": unit
     }))
 
-    logger.info(f"Found {len(raw_docs)} matching documents")
+    logger.info(f"Found {len(matching_docs)} matching documents")
 
-    day_map = {}
-    for doc in raw_docs:
-        date_str = doc["date"]
-        weekday = get_weekday(date_str)
-        schedule = []
+    # Step 1: Group all procedures/blocks by date
+    grouped_by_date: Dict[str, Dict[str, Any]] = {}
+
+    for doc in matching_docs:
+        date = doc["date"]
+        weekday = get_weekday(date)
+        if date not in grouped_by_date:
+            grouped_by_date[date] = {
+                "date": date,
+                "weekday": weekday,
+                "isCurrentMonth": True,
+                "schedule": []
+            }
 
         for proc in doc.get("procedures", []):
-            schedule.append({
+            grouped_by_date[date]["schedule"].append({
                 "type": "case",
-                "time": proc.get("time"),
-                "provider": proc.get("providerName"),
-                "room": proc.get("room")
+                "time": proc["time"],
+                "provider": proc["providerName"],
+                "room": proc["room"]
             })
         for blk in doc.get("blocks", []):
-            schedule.append({
+            grouped_by_date[date]["schedule"].append({
                 "type": "block",
-                "time": blk.get("time"),
-                "provider": blk.get("providerName"),
-                "room": blk.get("room")
+                "time": blk["time"],
+                "provider": blk["providerName"],
+                "room": blk["room"]
             })
 
-        day_map[date_str] = {
-            "date": date_str,
-            "weekday": weekday,
-            "isCurrentMonth": True,
-            "schedule": schedule
-        }
-
+    # Step 2: Build calendar grid
     month_start = datetime.strptime(start_date, "%Y-%m-%d")
     day_iter = month_start
     week_idx = 0
@@ -96,8 +100,8 @@ def get_calendar_view(
         if len(days_grid[week_idx]) == 5:
             week_idx += 1
 
-        if date_str in day_map:
-            days_grid[week_idx].append(day_map[date_str])
+        if date_str in grouped_by_date:
+            days_grid[week_idx].append(grouped_by_date[date_str])
         else:
             days_grid[week_idx].append({
                 "date": date_str,
@@ -112,5 +116,5 @@ def get_calendar_view(
         while len(week) < 5:
             week.append(empty_day(weekdays[len(week)]))
 
-    logger.info("Calendar grid constructed")
-    return days_grid[:4]
+    logger.info("Calendar grid generated successfully")
+    return days_grid[:6]
