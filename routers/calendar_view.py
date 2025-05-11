@@ -4,9 +4,14 @@ from datetime import datetime, timedelta
 from typing import Dict, Any
 import calendar
 import os
+import logging
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -30,8 +35,10 @@ def empty_day(weekday: str) -> Dict[str, Any]:
 def get_calendar_view(
     month: str = Query(..., example="2024-05"),
     hospitalId: str = Query(...),
-    unit: str = Query(...)
+    unit: str = Query(...),
 ):
+    logger.info(f"Fetching calendar for {month}, hospitalId={hospitalId}, unit={unit}")
+
     weekdays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
     days_grid = [[] for _ in range(6)]
 
@@ -39,11 +46,15 @@ def get_calendar_view(
     end_day = calendar.monthrange(int(month[:4]), int(month[5:]))[1]
     end_date = f"{month}-{end_day:02d}"
 
+    logger.info(f"Date range: {start_date} to {end_date}")
+
     matching_days = list(calendar_collection.find({
         "date": {"$gte": start_date, "$lte": end_date},
         "hospitalId": hospitalId,
         "unit": unit
     }))
+
+    logger.info(f"Found {len(matching_days)} matching documents")
 
     day_map = {}
     for doc in matching_days:
@@ -51,19 +62,24 @@ def get_calendar_view(
         weekday = get_weekday(date_str)
         schedule = []
 
+        # log raw room/procedure structure
+        logger.debug(f"Document for {date_str}: {doc}")
+
         for proc in doc.get("procedures", []):
+            logger.debug(f"Adding procedure: {proc}")
             schedule.append({
                 "type": "case",
-                "time": proc["time"],
-                "provider": proc["providerName"],
-                "room": proc["room"]
+                "time": proc.get("time"),
+                "provider": proc.get("providerName"),
+                "room": proc.get("room")
             })
         for blk in doc.get("blocks", []):
+            logger.debug(f"Adding block: {blk}")
             schedule.append({
                 "type": "block",
-                "time": blk["time"],
-                "provider": blk["providerName"],
-                "room": blk["room"]
+                "time": blk.get("time"),
+                "provider": blk.get("providerName"),
+                "room": blk.get("room")
             })
 
         day_map[date_str] = {
@@ -105,5 +121,5 @@ def get_calendar_view(
         while len(week) < 5:
             week.append(empty_day(weekdays[len(week)]))
 
-    # Preview just the first 2 weeks for testing in the browser
-    return days_grid[:4]
+    logger.info("Calendar grid generated successfully")
+    return days_grid[:4]  # Truncate to preview in browser
