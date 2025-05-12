@@ -76,3 +76,9 @@ app.include_router(surgeon_profiles_router)
 app.include_router(room_profiles_router)
 app.include_router(block_utilization_router)
 app.include_router(calendar_view.router)
+
+if __name__ == "__main__":
+    import uvicorn
+
+    port = int(os.environ.get("PORT", 8000))  # Render sets this to 10000
+    uvicorn.run("main:app", host="0.0.0.0", port=port)
