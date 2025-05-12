@@ -18,9 +18,11 @@ calendar_collection = db["calendar"]
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
+
 def get_weekday(date_str: str) -> str:
     dt = datetime.strptime(date_str, "%Y-%m-%d").date()
     return calendar.day_name[dt.weekday()]
+
 
 def empty_day(weekday: str) -> Dict[str, Any]:
     return {
@@ -29,6 +31,7 @@ def empty_day(weekday: str) -> Dict[str, Any]:
         "isCurrentMonth": False,
         "schedule": []
     }
+
 
 @router.get("/calendar/view")
 def get_calendar_view(
@@ -72,12 +75,14 @@ def get_calendar_view(
                 "schedule": []
             }
 
+        room = doc.get("room", "")  # Ensure this is inside the loop
+
         for proc in doc.get("procedures", []):
             grouped_by_date[date_str]["schedule"].append({
                 "type": "case",
                 "time": proc.get("time", ""),
                 "provider": proc.get("providerName", ""),
-                "room": proc.get("room", "")
+                "room": room
             })
 
         for blk in doc.get("blocks", []):
@@ -85,7 +90,7 @@ def get_calendar_view(
                 "type": "block",
                 "time": blk.get("time", ""),
                 "provider": blk.get("providerName", ""),
-                "room": blk.get("room", "")
+                "room": room
             })
 
     # Build the calendar grid
