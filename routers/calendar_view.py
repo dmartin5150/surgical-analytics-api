@@ -20,11 +20,9 @@ calendar_collection = db["calendar"]
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
-
 def get_weekday(date_str: str) -> str:
     dt = datetime.strptime(date_str, "%Y-%m-%d").date()
     return calendar.day_name[dt.weekday()]
-
 
 def empty_day(weekday: str) -> Dict[str, Any]:
     return {
@@ -52,13 +50,17 @@ def get_calendar_view(
     weekdays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
     days_grid = [[] for _ in range(6)]
 
-    start_date_str = f"{month}-01"
+    # Compute month boundaries
     year, month_num = map(int, month.split("-"))
-    end_day = calendar.monthrange(year, month_num)[1]
-    end_date_str = f"{month}-{end_day:02d}"
+    start_date = datetime(year, month_num, 1).date()
+    last_day = calendar.monthrange(year, month_num)[1]
+    end_date = datetime(year, month_num, last_day).date()
+
+    start_date_str = start_date.strftime("%Y-%m-%d")
+    end_date_str = end_date.strftime("%Y-%m-%d")
 
     logger.info(f"Fetching calendar for {month}, hospitalId={hospitalId}, unit={unit}")
-    logger.info(f"Date range (string): {start_date_str} to {end_date_str}")
+    logger.info(f"Date range: {start_date_str} to {end_date_str}")
 
     matching_docs = list(calendar_collection.find({
         "date": {"$gte": start_date_str, "$lte": end_date_str},
@@ -109,13 +111,19 @@ def get_calendar_view(
             for room, sched in data["schedule"].items()
         ]
 
-    # Build the calendar grid
-    current_day = datetime.strptime(start_date_str, "%Y-%m-%d").date()
-    end_date = datetime.strptime(end_date_str, "%Y-%m-%d").date()
+    # Pad grid with empty cells before the first day
     week_idx = 0
+    current_day = start_date
 
+    first_weekday = current_day.weekday()  # Monday=0, Sunday=6
+    if first_weekday < 5:  # If it’s Monday–Friday
+        for i in range(first_weekday):
+            weekday_name = calendar.day_name[i]
+            days_grid[week_idx].append(empty_day(weekday_name))
+
+    # Fill in all days of the month
     while current_day <= end_date:
-        if current_day.weekday() < 5:
+        if current_day.weekday() < 5:  # Monday to Friday
             date_str = current_day.strftime("%Y-%m-%d")
             weekday_name = calendar.day_name[current_day.weekday()]
 
@@ -134,6 +142,7 @@ def get_calendar_view(
 
         current_day += timedelta(days=1)
 
+    # Pad remaining empty cells in last week
     for week in days_grid:
         while len(week) < 5:
             week.append(empty_day(weekdays[len(week)]))
