@@ -6,6 +6,7 @@ import calendar
 import os
 import logging
 from collections import defaultdict
+from dateutil import parser
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -33,6 +34,14 @@ def empty_day(weekday: str) -> Dict[str, Any]:
         "schedule": []
     }
 
+def format_time_range(start: str, end: str) -> str:
+    try:
+        start_dt = parser.parse(start)
+        end_dt = parser.parse(end)
+        return f"{start_dt.strftime('%H:%M')} - {end_dt.strftime('%H:%M')}"
+    except Exception as e:
+        logger.warning(f"Time format error: {e}")
+        return ""
 
 @router.get("/calendar/view")
 def get_calendar_view(
@@ -76,17 +85,19 @@ def get_calendar_view(
             }
 
         for proc in doc.get("procedures", []):
+            time_str = format_time_range(proc.get("startTime", ""), proc.get("endTime", ""))
             grouped_by_date[date_str]["schedule"][room].append({
                 "type": "case",
-                "time": proc.get("time", ""),
+                "time": time_str,
                 "provider": proc.get("providerName", ""),
                 "room": room
             })
 
         for blk in doc.get("blocks", []):
+            time_str = format_time_range(blk.get("startTime", ""), blk.get("endTime", ""))
             grouped_by_date[date_str]["schedule"][room].append({
                 "type": "block",
-                "time": blk.get("time", ""),
+                "time": time_str,
                 "provider": blk.get("providerName", ""),
                 "room": room
             })
