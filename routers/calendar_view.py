@@ -5,6 +5,7 @@ from typing import Dict, Any
 import calendar
 import os
 import logging
+from collections import defaultdict
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -18,17 +19,20 @@ calendar_collection = db["calendar"]
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
+
 def get_weekday(date_str: str) -> str:
     dt = datetime.strptime(date_str, "%Y-%m-%d").date()
     return calendar.day_name[dt.weekday()]
+
 
 def empty_day(weekday: str) -> Dict[str, Any]:
     return {
         "date": None,
         "weekday": weekday,
         "isCurrentMonth": False,
-        "rooms": {}
+        "schedule": []
     }
+
 
 @router.get("/calendar/view")
 def get_calendar_view(
@@ -55,6 +59,7 @@ def get_calendar_view(
 
     logger.info(f"Found {len(matching_docs)} matching documents")
 
+    # Group data by date and then by room
     grouped_by_date: Dict[str, Dict[str, Any]] = {}
 
     for doc in matching_docs:
@@ -67,26 +72,33 @@ def get_calendar_view(
                 "date": date_str,
                 "weekday": weekday,
                 "isCurrentMonth": True,
-                "rooms": {}
+                "schedule": defaultdict(list)
             }
 
-        if room not in grouped_by_date[date_str]["rooms"]:
-            grouped_by_date[date_str]["rooms"][room] = []
-
         for proc in doc.get("procedures", []):
-            grouped_by_date[date_str]["rooms"][room].append({
+            grouped_by_date[date_str]["schedule"][room].append({
                 "type": "case",
                 "time": proc.get("time", ""),
-                "provider": proc.get("providerName", "")
+                "provider": proc.get("providerName", ""),
+                "room": room
             })
 
         for blk in doc.get("blocks", []):
-            grouped_by_date[date_str]["rooms"][room].append({
+            grouped_by_date[date_str]["schedule"][room].append({
                 "type": "block",
                 "time": blk.get("time", ""),
-                "provider": blk.get("providerName", "")
+                "provider": blk.get("providerName", ""),
+                "room": room
             })
 
+    # Convert defaultdict to list of room-based schedules
+    for date_str, data in grouped_by_date.items():
+        data["schedule"] = [
+            {"room": room, "schedule": sched}
+            for room, sched in data["schedule"].items()
+        ]
+
+    # Build the calendar grid
     current_day = datetime.strptime(start_date_str, "%Y-%m-%d").date()
     end_date = datetime.strptime(end_date_str, "%Y-%m-%d").date()
     week_idx = 0
@@ -106,7 +118,7 @@ def get_calendar_view(
                     "date": date_str,
                     "weekday": weekday_name,
                     "isCurrentMonth": True,
-                    "rooms": {}
+                    "schedule": []
                 })
 
         current_day += timedelta(days=1)
