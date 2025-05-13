@@ -29,7 +29,11 @@ def empty_day(weekday: str) -> Dict[str, Any]:
         "date": None,
         "weekday": weekday,
         "isCurrentMonth": False,
-        "schedule": []
+        "schedule": [],
+        "utilization": {
+            "overall": 0.0,
+            "rooms": {}
+        }
     }
 
 def format_time_range(start: str, end: str) -> str:
@@ -184,7 +188,11 @@ def get_calendar_view(
                     "date": date_str,
                     "weekday": weekday_name,
                     "isCurrentMonth": True,
-                    "schedule": []
+                    "schedule": [],
+                    "utilization": {
+                        "overall": 0.0,
+                        "rooms": {}
+                    }
                 })
 
         current_day += timedelta(days=1)
