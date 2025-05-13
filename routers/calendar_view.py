@@ -20,6 +20,11 @@ calendar_collection = db["calendar"]
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
+UNIT_ROOMS = {
+    "DEID_e51abb9f": ["OR1", "OR2", "OR3", "OR4"],
+    # Add other units and their rooms here
+}
+
 def get_weekday(date_str: str) -> str:
     dt = datetime.strptime(date_str, "%Y-%m-%d").date()
     return calendar.day_name[dt.weekday()]
@@ -130,9 +135,13 @@ def get_calendar_view(
             })
 
     for date_str, data in grouped_by_date.items():
+        unit_rooms = UNIT_ROOMS.get(unit, [])
+        room_schedule_map = {
+            room: sched for room, sched in data["schedule"].items()
+        }
         data["schedule"] = [
-            {"room": room, "schedule": sched}
-            for room, sched in data["schedule"].items()
+            {"room": room, "schedule": room_schedule_map.get(room, [])}
+            for room in unit_rooms
         ]
 
         total_room_minutes = 510
@@ -155,8 +164,8 @@ def get_calendar_view(
         }
 
         overall_util = (
-            round(total_minutes / (len(room_minutes) * total_room_minutes), 3)
-            if room_minutes else 0.0
+            round(total_minutes / (len(unit_rooms) * total_room_minutes), 3)
+            if unit_rooms else 0.0
         )
 
         data["utilization"] = {
@@ -184,14 +193,18 @@ def get_calendar_view(
             if date_str in grouped_by_date:
                 days_grid[week_idx].append(grouped_by_date[date_str])
             else:
+                unit_rooms = UNIT_ROOMS.get(unit, [])
                 days_grid[week_idx].append({
                     "date": date_str,
                     "weekday": weekday_name,
                     "isCurrentMonth": True,
-                    "schedule": [],
+                    "schedule": [
+                        {"room": room, "schedule": []}
+                        for room in unit_rooms
+                    ],
                     "utilization": {
                         "overall": 0.0,
-                        "rooms": {}
+                        "rooms": {room: 0.0 for room in unit_rooms}
                     }
                 })
 
