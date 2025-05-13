@@ -24,15 +24,17 @@ def get_weekday(date_str: str) -> str:
     dt = datetime.strptime(date_str, "%Y-%m-%d").date()
     return calendar.day_name[dt.weekday()]
 
-def empty_day(weekday: str) -> Dict[str, Any]:
+def empty_day(weekday: str, all_rooms: list) -> Dict[str, Any]:
     return {
         "date": None,
         "weekday": weekday,
         "isCurrentMonth": False,
-        "schedule": [],
+        "schedule": [
+            {"room": room, "schedule": []} for room in all_rooms
+        ],
         "utilization": {
             "overall": 0.0,
-            "rooms": {}
+            "rooms": {room: 0.0 for room in all_rooms}
         }
     }
 
@@ -75,7 +77,6 @@ def get_calendar_view(
     unit: str = Query(...),
 ):
     weekdays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
-    days_grid = [[] for _ in range(6)]
 
     year, month_num = map(int, month.split("-"))
     start_date = datetime(year, month_num, 1).date()
@@ -96,12 +97,21 @@ def get_calendar_view(
 
     logger.info(f"Found {len(matching_docs)} matching documents")
 
+    all_rooms = sorted({
+        doc["room"].strip().upper()
+        for doc in matching_docs
+        if doc.get("room") and isinstance(doc["room"], str) and doc["room"].strip()
+        and doc.get("procedures")
+    })
+    logger.info(f"Detected rooms for unit={unit}: {all_rooms}")
+
+    days_grid = [[] for _ in range(6)]
     grouped_by_date: Dict[str, Dict[str, Any]] = {}
 
     for doc in matching_docs:
         date_str = doc["date"]
         weekday = get_weekday(date_str)
-        room = doc.get("room", "")
+        room = doc.get("room", "").strip().upper()
 
         if date_str not in grouped_by_date:
             grouped_by_date[date_str] = {
@@ -130,9 +140,12 @@ def get_calendar_view(
             })
 
     for date_str, data in grouped_by_date.items():
+        room_schedule_map = {
+            room: sched for room, sched in data["schedule"].items()
+        }
         data["schedule"] = [
-            {"room": room, "schedule": sched}
-            for room, sched in data["schedule"].items()
+            {"room": room, "schedule": room_schedule_map.get(room, [])}
+            for room in all_rooms
         ]
 
         total_room_minutes = 510
@@ -155,8 +168,8 @@ def get_calendar_view(
         }
 
         overall_util = (
-            round(total_minutes / (len(room_minutes) * total_room_minutes), 3)
-            if room_minutes else 0.0
+            round(total_minutes / (len(all_rooms) * total_room_minutes), 3)
+            if all_rooms else 0.0
         )
 
         data["utilization"] = {
@@ -171,7 +184,7 @@ def get_calendar_view(
     if first_weekday < 5:
         for i in range(first_weekday):
             weekday_name = calendar.day_name[i]
-            days_grid[week_idx].append(empty_day(weekday_name))
+            days_grid[week_idx].append(empty_day(weekday_name, all_rooms))
 
     while current_day <= end_date:
         if current_day.weekday() < 5:
@@ -188,10 +201,13 @@ def get_calendar_view(
                     "date": date_str,
                     "weekday": weekday_name,
                     "isCurrentMonth": True,
-                    "schedule": [],
+                    "schedule": [
+                        {"room": room, "schedule": []}
+                        for room in all_rooms
+                    ],
                     "utilization": {
                         "overall": 0.0,
-                        "rooms": {}
+                        "rooms": {room: 0.0 for room in all_rooms}
                     }
                 })
 
@@ -199,7 +215,7 @@ def get_calendar_view(
 
     for week in days_grid:
         while len(week) < 5:
-            week.append(empty_day(weekdays[len(week)]))
+            week.append(empty_day(weekdays[len(week)], all_rooms))
 
     logger.info("✅ Calendar grid created successfully")
     return days_grid[:6]
