@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Query
 from pymongo import MongoClient
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time
 from typing import Dict, Any
 import calendar
 import os
@@ -41,6 +41,29 @@ def format_time_range(start: str, end: str) -> str:
         logger.warning(f"Time format error: {e}")
         return ""
 
+def get_minutes_in_window(start_str: str, end_str: str) -> int:
+    try:
+        fmt = "%H:%M"
+        start = datetime.strptime(start_str, fmt).time()
+        end = datetime.strptime(end_str, fmt).time()
+
+        window_start = time(7, 0)
+        window_end = time(15, 30)
+
+        actual_start = max(start, window_start)
+        actual_end = min(end, window_end)
+
+        if actual_start >= actual_end:
+            return 0
+
+        delta = (
+            datetime.combine(datetime.today(), actual_end) -
+            datetime.combine(datetime.today(), actual_start)
+        ).seconds // 60
+        return delta
+    except Exception:
+        return 0
+
 @router.get("/calendar/view")
 def get_calendar_view(
     month: str = Query(..., example="2024-05"),
@@ -50,7 +73,6 @@ def get_calendar_view(
     weekdays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
     days_grid = [[] for _ in range(6)]
 
-    # Compute month boundaries
     year, month_num = map(int, month.split("-"))
     start_date = datetime(year, month_num, 1).date()
     last_day = calendar.monthrange(year, month_num)[1]
@@ -70,7 +92,6 @@ def get_calendar_view(
 
     logger.info(f"Found {len(matching_docs)} matching documents")
 
-    # Group data by date and then by room
     grouped_by_date: Dict[str, Dict[str, Any]] = {}
 
     for doc in matching_docs:
@@ -104,26 +125,52 @@ def get_calendar_view(
                 "room": room
             })
 
-    # Convert defaultdict to list of room-based schedules
     for date_str, data in grouped_by_date.items():
         data["schedule"] = [
             {"room": room, "schedule": sched}
             for room, sched in data["schedule"].items()
         ]
 
-    # Pad grid with empty cells before the first day
+        total_room_minutes = 510
+        room_minutes = {}
+        total_minutes = 0
+
+        for entry in data["schedule"]:
+            room = entry["room"]
+            items = entry["schedule"]
+            minutes = sum(
+                get_minutes_in_window(*item["time"].split(" - "))
+                for item in items if item["type"] == "case"
+            )
+            room_minutes[room] = minutes
+            total_minutes += minutes
+
+        room_utilization = {
+            room: round(minutes / total_room_minutes, 3)
+            for room, minutes in room_minutes.items()
+        }
+
+        overall_util = (
+            round(total_minutes / (len(room_minutes) * total_room_minutes), 3)
+            if room_minutes else 0.0
+        )
+
+        data["utilization"] = {
+            "overall": overall_util,
+            "rooms": room_utilization
+        }
+
     week_idx = 0
     current_day = start_date
 
-    first_weekday = current_day.weekday()  # Monday=0, Sunday=6
-    if first_weekday < 5:  # If it’s Monday–Friday
+    first_weekday = current_day.weekday()
+    if first_weekday < 5:
         for i in range(first_weekday):
             weekday_name = calendar.day_name[i]
             days_grid[week_idx].append(empty_day(weekday_name))
 
-    # Fill in all days of the month
     while current_day <= end_date:
-        if current_day.weekday() < 5:  # Monday to Friday
+        if current_day.weekday() < 5:
             date_str = current_day.strftime("%Y-%m-%d")
             weekday_name = calendar.day_name[current_day.weekday()]
 
@@ -142,7 +189,6 @@ def get_calendar_view(
 
         current_day += timedelta(days=1)
 
-    # Pad remaining empty cells in last week
     for week in days_grid:
         while len(week) < 5:
             week.append(empty_day(weekdays[len(week)]))
