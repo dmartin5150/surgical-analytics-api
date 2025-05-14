@@ -68,11 +68,9 @@ def get_calendar_qa_view(
     rooms_with_overlap = set()
 
     for doc in calendar_docs:
-        # ensure date is normalized to central timezone date
         central_date = parse_to_central_date(doc["date"])
         by_date[central_date] = doc
 
-        # track overlapping rooms
         blocks = doc.get("blocks", [])
         if len(blocks) > 1 and check_block_overlap(blocks):
             rooms_with_overlap.add(doc.get("room"))
@@ -125,12 +123,18 @@ def get_calendar_qa_view(
                 })
 
         current_day += timedelta(days=1)
-        unique_rooms = sorted({entry["room"] for day in days_grid for entry in day if entry["date"] is not None for sched in entry["schedule"] for entry in sched["schedule"] if entry["type"] == "block"})
-        
-        
+
+    unique_rooms = sorted({
+        sched_entry["room"]
+        for week in days_grid
+        for day in week
+        if day["date"] is not None
+        for sched in day["schedule"]
+        for sched_entry in [sched]
+    })
 
     return {
-        "calendar": days_grid[:6],   
+        "calendar": days_grid[:6],
         "allRooms": unique_rooms,
         "roomsWithOverlap": sorted(rooms_with_overlap)
     }
