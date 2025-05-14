@@ -10,7 +10,7 @@ from routers.room_profiles import room_profiles_router
 from routers.block_utilization import block_utilization_router
 from routers import calendar_qa 
 from routers import calendar_view
-
+from routers import calendar_blocks  
 # Load env variables
 load_dotenv()
 
@@ -78,6 +78,7 @@ app.include_router(room_profiles_router)
 app.include_router(block_utilization_router)
 app.include_router(calendar_view.router)
 app.include_router(calendar_qa.router, prefix="/api")
+app.include_router(calendar_blocks.router)
 
 if __name__ == "__main__":
     import uvicorn
