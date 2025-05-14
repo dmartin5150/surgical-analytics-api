@@ -34,7 +34,6 @@ def check_block_overlap(blocks):
             intervals.append((start, end))
         except Exception:
             continue
-
     intervals.sort()
     for i in range(1, len(intervals)):
         if intervals[i][0] < intervals[i - 1][1]:
@@ -71,9 +70,11 @@ def get_calendar_qa_view(
         central_date = parse_to_central_date(doc["date"])
         by_date[central_date] = doc
 
-        blocks = doc.get("blocks", [])
-        if len(blocks) > 1 and check_block_overlap(blocks):
-            rooms_with_overlap.add(doc.get("room"))
+        for room_entry in doc.get("schedule", []):
+            room = room_entry.get("room")
+            blocks = [b for b in room_entry.get("schedule", []) if b.get("type") == "block"]
+            if len(blocks) > 1 and check_block_overlap(blocks):
+                rooms_with_overlap.add(room)
 
     current_day = start_date
     week_idx = 0
@@ -126,11 +127,10 @@ def get_calendar_qa_view(
 
     unique_rooms = sorted({
         sched_entry["room"]
-        for week in days_grid
-        for day in week
-        if day["date"] is not None
-        for sched in day["schedule"]
-        for sched_entry in [sched]
+        for day in days_grid
+        for entry in day
+        if entry["date"] is not None
+        for sched_entry in entry["schedule"]
     })
 
     return {
