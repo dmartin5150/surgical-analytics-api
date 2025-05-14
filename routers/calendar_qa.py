@@ -74,6 +74,7 @@ def get_calendar_qa_view(
         for room_entry in doc.get("schedule", []):
             room = room_entry.get("room")
             unique_rooms.add(room)
+            print('room', room)
             blocks = [b for b in room_entry.get("schedule", []) if b.get("type") == "block"]
             if len(blocks) > 1 and check_block_overlap(blocks):
                 rooms_with_overlap.add(room)
