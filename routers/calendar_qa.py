@@ -69,13 +69,12 @@ def get_calendar_qa_view(
 
     for doc in calendar_docs:
         central_date = parse_to_central_date(doc["date"])
-        by_date[central_date] = doc
+        by_date.setdefault(central_date, []).append(doc)
 
-        for room_entry in doc.get("schedule", []):
-            room = room_entry.get("room")
+        room = doc.get("room")
+        blocks = doc.get("blocks", [])
+        if room:
             unique_rooms.add(room)
-            print('room', room)
-            blocks = [b for b in room_entry.get("schedule", []) if b.get("type") == "block"]
             if len(blocks) > 1 and check_block_overlap(blocks):
                 rooms_with_overlap.add(room)
 
@@ -103,16 +102,28 @@ def get_calendar_qa_view(
                 week_idx += 1
 
             if date_str in by_date:
-                doc = by_date[date_str]
-                blocks = doc.get("blocks", [])
-                has_multiple = len(blocks) > 1
-                has_overlap = check_block_overlap(blocks)
+                daily_docs = by_date[date_str]
+                schedule = []
+                has_multiple = False
+                has_overlap = False
+
+                for doc in daily_docs:
+                    room = doc.get("room")
+                    room_schedule = doc.get("blocks", [])
+                    schedule.append({
+                        "room": room,
+                        "schedule": room_schedule
+                    })
+                    if len(room_schedule) > 1:
+                        has_multiple = True
+                    if check_block_overlap(room_schedule):
+                        has_overlap = True
 
                 days_grid[week_idx].append({
                     "date": date_str,
                     "weekday": weekday_name,
                     "isCurrentMonth": True,
-                    "schedule": doc.get("schedule", []),
+                    "schedule": schedule,
                     "hasMultipleBlocks": has_multiple,
                     "hasBlockOverlap": has_overlap
                 })
@@ -128,9 +139,8 @@ def get_calendar_qa_view(
 
         current_day += timedelta(days=1)
 
-
     return {
         "calendar": days_grid[:6],
-        "allRooms": unique_rooms,
+        "allRooms": sorted(unique_rooms),
         "roomsWithOverlap": sorted(rooms_with_overlap)
     }
