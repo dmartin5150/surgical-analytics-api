@@ -68,7 +68,7 @@ def get_calendar_qa_view(
     unique_rooms = set()
 
     for doc in calendar_docs:
-        central_date = parse_to_central_date(doc["date"])
+        central_date = doc["date"][:10]
         by_date.setdefault(central_date, []).append(doc)
 
         room = doc.get("room")
