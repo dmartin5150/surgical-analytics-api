@@ -14,7 +14,7 @@ db = client["surgical-analytics"]
 calendar_collection = db["calendar"]
 
 central = pytz.timezone("US/Central")
-@router.get("/calendar/block", tags=["Calendar"])
+@router.get("/calendar/blocks", tags=["Calendar"])
 def get_blocks_for_day(
     date: str = Query(..., example="2024-05-08"),
     room: str = Query(...),
