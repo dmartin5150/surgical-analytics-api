@@ -72,6 +72,7 @@ def get_calendar_qa_view(
         by_date.setdefault(central_date, []).append(doc)
 
         room = doc.get("room")
+        print('room:', room)
         blocks = doc.get("blocks", [])
         if room:
             unique_rooms.add(room)
