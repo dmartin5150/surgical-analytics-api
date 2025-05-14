@@ -78,7 +78,7 @@ app.include_router(room_profiles_router)
 app.include_router(block_utilization_router)
 app.include_router(calendar_view.router)
 app.include_router(calendar_qa.router, prefix="/api")
-app.include_router(calendar_blocks.router)
+app.include_router(calendar_blocks.router,prefix="/api")
 
 if __name__ == "__main__":
     import uvicorn
