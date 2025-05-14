@@ -1,10 +1,11 @@
-# routers/calendar_qa.py
 from datetime import datetime, timedelta
 from pymongo import MongoClient
 from fastapi import APIRouter, Query
 from dotenv import load_dotenv
 import calendar
 import os
+from dateutil import parser
+import pytz
 
 load_dotenv()
 
@@ -13,18 +14,23 @@ client = MongoClient(os.getenv("MONGODB_URI"))
 db = client["surgical-analytics"]
 calendar_collection = db["calendar"]
 
+central = pytz.timezone("US/Central")
 
-def get_weekday_name(date_str: str) -> str:
-    dt = datetime.strptime(date_str, "%Y-%m-%d")
-    return calendar.day_name[dt.weekday()]
-
+def parse_to_central_date(dt_str: str) -> str:
+    try:
+        dt = parser.isoparse(dt_str)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=pytz.UTC)
+        return dt.astimezone(central).strftime("%Y-%m-%d")
+    except Exception:
+        return dt_str[:10]  # fallback just in case
 
 def check_block_overlap(blocks):
     intervals = []
     for b in blocks:
         try:
-            start = datetime.fromisoformat(b["startTime"])
-            end = datetime.fromisoformat(b["endTime"])
+            start = parser.isoparse(b["startTime"])
+            end = parser.isoparse(b["endTime"])
             intervals.append((start, end))
         except Exception:
             continue
@@ -34,7 +40,6 @@ def check_block_overlap(blocks):
         if intervals[i][0] < intervals[i - 1][1]:
             return True
     return False
-
 
 @router.get("/calendar/qa")
 def get_calendar_qa_view(
@@ -59,7 +64,18 @@ def get_calendar_qa_view(
         "unit": unit
     }))
 
-    by_date = {doc["date"]: doc for doc in calendar_docs}
+    by_date = {}
+    rooms_with_overlap = set()
+
+    for doc in calendar_docs:
+        # ensure date is normalized to central timezone date
+        central_date = parse_to_central_date(doc["date"])
+        by_date[central_date] = doc
+
+        # track overlapping rooms
+        blocks = doc.get("blocks", [])
+        if len(blocks) > 1 and check_block_overlap(blocks):
+            rooms_with_overlap.add(doc.get("room"))
 
     current_day = start_date
     week_idx = 0
@@ -91,7 +107,7 @@ def get_calendar_qa_view(
                 has_overlap = check_block_overlap(blocks)
 
                 days_grid[week_idx].append({
-                    "date": doc["date"],
+                    "date": date_str,
                     "weekday": weekday_name,
                     "isCurrentMonth": True,
                     "schedule": doc.get("schedule", []),
@@ -110,4 +126,7 @@ def get_calendar_qa_view(
 
         current_day += timedelta(days=1)
 
-    return days_grid[:6]
+    return {
+        "calendar": days_grid[:6],
+        "roomsWithOverlap": sorted(rooms_with_overlap)
+    }
