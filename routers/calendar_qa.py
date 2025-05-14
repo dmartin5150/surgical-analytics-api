@@ -125,8 +125,12 @@ def get_calendar_qa_view(
                 })
 
         current_day += timedelta(days=1)
+        unique_rooms = sorted({entry["room"] for day in days_grid for entry in day if entry["date"] is not None for sched in entry["schedule"] for entry in sched["schedule"] if entry["type"] == "block"})
+        
+        
 
     return {
-        "calendar": days_grid[:6],
+        "calendar": days_grid[:6],   
+        "allRooms": unique_rooms,
         "roomsWithOverlap": sorted(rooms_with_overlap)
     }
