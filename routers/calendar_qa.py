@@ -65,7 +65,7 @@ def get_calendar_qa_view(
     rooms_with_multiple = {}
 
     for doc in calendar_docs:
-        date = parse_to_central_date(doc["date"])
+        date = doc["date"][:10]  # ✅ use plain string without timezone conversion
         room = doc.get("room")
         blocks = doc.get("blocks", [])
 
@@ -81,6 +81,6 @@ def get_calendar_qa_view(
 
     return {
         "allRooms": sorted(all_rooms),
-        "roomsWithOverlap": rooms_with_overlap,   # {room: [date, ...]}
-        "roomsWithMultiple": rooms_with_multiple  # {room: [date, ...]}
+        "roomsWithOverlap": rooms_with_overlap,
+        "roomsWithMultiple": rooms_with_multiple
     }
