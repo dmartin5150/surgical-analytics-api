@@ -46,102 +46,41 @@ def get_calendar_qa_view(
     hospitalId: str = Query(...),
     unit: str = Query(...),
 ):
-    weekdays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
-    days_grid = [[] for _ in range(6)]
-
     year, month_num = map(int, month.split("-"))
     start_date = datetime(year, month_num, 1).date()
     last_day = calendar.monthrange(year, month_num)[1]
     end_date = datetime(year, month_num, last_day).date()
 
-    start_date_str = start_date.strftime("%Y-%m-%d")
-    end_date_str = end_date.strftime("%Y-%m-%d")
+    start_str = start_date.strftime("%Y-%m-%d")
+    end_str = end_date.strftime("%Y-%m-%d")
 
     calendar_docs = list(calendar_collection.find({
-        "date": {"$gte": start_date_str, "$lte": end_date_str},
+        "date": {"$gte": start_str, "$lte": end_str},
         "hospitalId": hospitalId,
         "unit": unit
     }))
 
-    by_date = {}
-    rooms_with_overlap = set()
-    unique_rooms = set()
+    all_rooms = set()
+    rooms_with_overlap = {}
+    rooms_with_multiple = {}
 
     for doc in calendar_docs:
-        central_date = doc["date"][:10]
-        by_date.setdefault(central_date, []).append(doc)
-
+        date = parse_to_central_date(doc["date"])
         room = doc.get("room")
-        print('room:', room)
         blocks = doc.get("blocks", [])
-        if room:
-            unique_rooms.add(room)
-            if len(blocks) > 1 and check_block_overlap(blocks):
-                rooms_with_overlap.add(room)
 
-    current_day = start_date
-    week_idx = 0
+        if not room or not blocks:
+            continue
 
-    first_weekday = current_day.weekday()
-    if first_weekday < 5:
-        for i in range(first_weekday):
-            days_grid[week_idx].append({
-                "date": None,
-                "weekday": calendar.day_name[i],
-                "isCurrentMonth": False,
-                "schedule": [],
-                "hasMultipleBlocks": False,
-                "hasBlockOverlap": False,
-            })
+        all_rooms.add(room)
 
-    while current_day <= end_date:
-        if current_day.weekday() < 5:
-            date_str = current_day.strftime("%Y-%m-%d")
-            weekday_name = calendar.day_name[current_day.weekday()]
-
-            if len(days_grid[week_idx]) == 5:
-                week_idx += 1
-
-            if date_str in by_date:
-                daily_docs = by_date[date_str]
-                schedule = []
-                has_multiple = False
-                has_overlap = False
-
-                for doc in daily_docs:
-                    room = doc.get("room")
-                    room_schedule = doc.get("blocks", [])
-                    schedule.append({
-                        "room": room,
-                        "schedule": room_schedule
-                    })
-                    if len(room_schedule) > 1:
-                        has_multiple = True
-                    if check_block_overlap(room_schedule):
-                        has_overlap = True
-
-                days_grid[week_idx].append({
-                    "date": date_str,
-                    "weekday": weekday_name,
-                    "isCurrentMonth": True,
-                    "schedule": schedule,
-                    "hasMultipleBlocks": has_multiple,
-                    "hasBlockOverlap": has_overlap
-                })
-            else:
-                days_grid[week_idx].append({
-                    "date": date_str,
-                    "weekday": weekday_name,
-                    "isCurrentMonth": True,
-                    "schedule": [],
-                    "hasMultipleBlocks": False,
-                    "hasBlockOverlap": False
-                })
-
-        current_day += timedelta(days=1)
+        if len(blocks) > 1:
+            rooms_with_multiple.setdefault(room, []).append(date)
+            if check_block_overlap(blocks):
+                rooms_with_overlap.setdefault(room, []).append(date)
 
     return {
-        "calendar": days_grid[:6],
-        "allRooms": sorted(unique_rooms),
-        "roomsWithOverlap": sorted(rooms_with_overlap)
+        "allRooms": sorted(all_rooms),
+        "roomsWithOverlap": rooms_with_overlap,   # {room: [date, ...]}
+        "roomsWithMultiple": rooms_with_multiple  # {room: [date, ...]}
     }
