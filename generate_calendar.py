@@ -29,15 +29,24 @@ def to_cst(dt_raw) -> datetime:
         raise TypeError(f"Unsupported type: {type(dt_raw)}")
     return dt_utc.astimezone(pytz.timezone("US/Central"))
 
+# Setup CST boundaries for May 2024
+cst_tz = pytz.timezone("US/Central")
+MAY_START_CST = cst_tz.localize(datetime(2024, 5, 1, 0, 0))
+MAY_END_CST = cst_tz.localize(datetime(2024, 6, 1, 0, 0))
+
+# Convert to UTC for querying MongoDB
+MAY_START_UTC = MAY_START_CST.astimezone(pytz.UTC)
+MAY_END_UTC = MAY_END_CST.astimezone(pytz.UTC)
+
 grouped_data = defaultdict(lambda: {
     "procedures": [],
     "blocks": []
 })
 
-print("🔍 Fetching primary procedures...")
+print("🔍 Fetching primary procedures for May 2024...")
 cursor = cases_collection.find({
     "procedures.primary": True,
-    "startTime": {"$exists": True},
+    "startTime": {"$gte": MAY_START_UTC, "$lt": MAY_END_UTC},
     "endTime": {"$exists": True}
 })
 
@@ -74,18 +83,58 @@ for case in cursor:
         })
         total += 1
 
-print("🧹 Clearing old calendar data...")
-calendar_collection.delete_many({})
-
-print("📝 Inserting calendar data...")
+print("📝 Upserting calendar data...")
 for (date, hospitalId, unit, room), data in grouped_data.items():
-    calendar_collection.insert_one({
-        "date": date,
-        "hospitalId": hospitalId,
-        "unit": unit,
-        "room": room,
-        "procedures": data["procedures"],
-        "blocks": []
-    })
+    # Define the day boundaries in CST
+    day_start = datetime.strptime(date, "%Y-%m-%d").replace(hour=7, minute=0, tzinfo=cst_tz)
+    day_end = day_start.replace(hour=15, minute=30)
+    available_minutes = 510
 
-print(f"✅ Done. {len(grouped_data)} calendar entries created for {total} procedures.")
+    # Clip procedures to surgical day and collect intervals
+    intervals = []
+    for proc in data["procedures"]:
+        proc_start = to_cst(proc["startTime"])
+        proc_end = to_cst(proc["endTime"])
+
+        clipped_start = max(proc_start, day_start)
+        clipped_end = min(proc_end, day_end)
+
+        if clipped_end > clipped_start:
+            start_min = int((clipped_start - day_start).total_seconds() / 60)
+            end_min = int((clipped_end - day_start).total_seconds() / 60)
+            intervals.append((start_min, end_min))
+
+    # Merge overlapping intervals
+    intervals.sort()
+    merged = []
+    for start, end in intervals:
+        if not merged or start > merged[-1][1]:
+            merged.append((start, end))
+        else:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+
+    # Calculate total unique minutes used
+    utilization_minutes = sum(end - start for start, end in merged)
+    utilization_rate = round(utilization_minutes / available_minutes, 3)
+
+    # Upsert the document
+    calendar_collection.update_one(
+        {
+            "date": date,
+            "hospitalId": hospitalId,
+            "unit": unit,
+            "room": room
+        },
+        {
+            "$set": {
+                "procedures": data["procedures"],
+                "blocks": [],
+                "utilizationMinutes": utilization_minutes,
+                "availableMinutes": available_minutes,
+                "utilizationRate": utilization_rate
+            }
+        },
+        upsert=True
+    )
+
+print(f"✅ Done. {len(grouped_data)} calendar entries processed for {total} procedures.")

@@ -46,34 +46,11 @@ def format_time_range(start: str, end: str) -> str:
         logger.warning(f"Time format error: {e}")
         return ""
 
-def get_minutes_in_window(start_str: str, end_str: str) -> int:
-    try:
-        fmt = "%H:%M"
-        start = datetime.strptime(start_str, fmt).time()
-        end = datetime.strptime(end_str, fmt).time()
-
-        window_start = time(7, 0)
-        window_end = time(15, 30)
-
-        actual_start = max(start, window_start)
-        actual_end = min(end, window_end)
-
-        if actual_start >= actual_end:
-            return 0
-
-        delta = (
-            datetime.combine(datetime.today(), actual_end) -
-            datetime.combine(datetime.today(), actual_start)
-        ).seconds // 60
-        return delta
-    except Exception:
-        return 0
-
 @router.get("/calendar/view")
 def get_calendar_view(
     month: str = Query(..., example="2024-05"),
     hospitalId: str = Query(...),
-    unit: str = Query(...),
+    unit: str = Query(...)
 ):
     weekdays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
 
@@ -91,7 +68,7 @@ def get_calendar_view(
     all_rooms = sorted({
         doc["room"].strip().upper()
         for doc in matching_docs
-        if doc.get("room") and isinstance(doc["room"], str) and doc.get("procedures")
+        if doc.get("room") and isinstance(doc["room"], str)
     })
 
     days_grid = [[] for _ in range(6)]
@@ -107,7 +84,11 @@ def get_calendar_view(
                 "date": date_str,
                 "weekday": weekday,
                 "isCurrentMonth": True,
-                "schedule": defaultdict(list)
+                "schedule": defaultdict(list),
+                "utilization": {
+                    "overall": 0.0,
+                    "rooms": {r: 0.0 for r in all_rooms}
+                }
             }
 
         for proc in doc.get("procedures", []):
@@ -130,43 +111,25 @@ def get_calendar_view(
                 "room": room
             })
 
+        # Populate utilization from DB
+        room_util = doc.get("utilizationRate")
+        if room_util is not None:
+            grouped_by_date[date_str]["utilization"]["rooms"][room] = round(room_util, 3)
+
+    # Compute overall utilization per day
     for date_str, data in grouped_by_date.items():
+        room_values = list(data["utilization"]["rooms"].values())
+        if room_values:
+            data["utilization"]["overall"] = round(sum(room_values) / len(room_values), 3)
+
         room_schedule_map = {
             room: sched for room, sched in data["schedule"].items()
         }
+
         data["schedule"] = [
             {"room": room, "schedule": room_schedule_map.get(room, [])}
             for room in all_rooms
         ]
-
-        total_room_minutes = 510
-        room_minutes = {}
-        total_minutes = 0
-
-        for entry in data["schedule"]:
-            room = entry["room"]
-            items = entry["schedule"]
-            minutes = sum(
-                get_minutes_in_window(*item["time"].split(" - "))
-                for item in items if item["type"] == "case"
-            )
-            room_minutes[room] = minutes
-            total_minutes += minutes
-
-        room_utilization = {
-            room: round(minutes / total_room_minutes, 3)
-            for room, minutes in room_minutes.items()
-        }
-
-        overall_util = (
-            round(total_minutes / (len(all_rooms) * total_room_minutes), 3)
-            if all_rooms else 0.0
-        )
-
-        data["utilization"] = {
-            "overall": overall_util,
-            "rooms": room_utilization
-        }
 
     week_idx = 0
     current_day = start_date
