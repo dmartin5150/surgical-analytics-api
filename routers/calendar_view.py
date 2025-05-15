@@ -101,17 +101,20 @@ def get_calendar_view(
             })
 
         for blk in doc.get("blocks", []):
-            if blk.get("inactive"):
-                continue
             time_str = format_time_range(blk.get("startTime", ""), blk.get("endTime", ""))
             grouped_by_date[date_str]["schedule"][room].append({
                 "type": "block",
                 "time": time_str,
                 "provider": blk.get("providerName", ""),
-                "room": room
+                "room": room,
+                "inactive": blk.get("inactive", False),
+                "inRoomUtilization": blk.get("inRoomUtilization", 0.0),
+                "totalUtilization": blk.get("totalUtilization", 0.0),
+                "duration": blk.get("duration", 0),
+                "primaryNpi": blk.get("primaryNpi", None)
             })
 
-        # Populate utilization from DB
+        # Populate room utilization
         room_util = doc.get("utilizationRate")
         if room_util is not None:
             grouped_by_date[date_str]["utilization"]["rooms"][room] = round(room_util, 3)
@@ -131,6 +134,7 @@ def get_calendar_view(
             for room in all_rooms
         ]
 
+    # Build week grid
     week_idx = 0
     current_day = start_date
 

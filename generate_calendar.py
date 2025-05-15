@@ -1,26 +1,24 @@
 from pymongo import MongoClient
-from datetime import datetime
+from datetime import datetime, timedelta
 from collections import defaultdict
 from dotenv import load_dotenv
 import pytz
 import os
 
-# Load environment variables from .env
+# Load environment variables
 load_dotenv()
 
-# Get MongoDB URI from environment
 MONGO_URI = os.getenv("MONGODB_URI")
 if not MONGO_URI:
     raise EnvironmentError("MONGODB_URI not found in .env file")
 
 client = MongoClient(MONGO_URI)
 db = client["surgical-analytics"]
-
 cases_collection = db["cases"]
+blocks_collection = db["block"]
 calendar_collection = db["calendar"]
 
 def to_cst(dt_raw) -> datetime:
-    """Convert UTC datetime to US Central Time."""
     if isinstance(dt_raw, str):
         dt_utc = datetime.fromisoformat(dt_raw.replace("Z", "+00:00")).astimezone(pytz.UTC)
     elif isinstance(dt_raw, datetime):
@@ -29,21 +27,32 @@ def to_cst(dt_raw) -> datetime:
         raise TypeError(f"Unsupported type: {type(dt_raw)}")
     return dt_utc.astimezone(pytz.timezone("US/Central"))
 
-# Setup CST boundaries for May 2024
+def get_week_of_month(date: datetime) -> int:
+    """Calculate Cerner-style week of month (week 1 starts on the 1st, even if before Sunday)."""
+    first_day = date.replace(day=1)
+    adjusted_dom = date.day + first_day.weekday()
+    return ((adjusted_dom - 1) // 7) + 1
+
+def merge_intervals(intervals):
+    intervals.sort()
+    merged = []
+    for start, end in intervals:
+        if not merged or start > merged[-1][1]:
+            merged.append((start, end))
+        else:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+    return merged
+
+# Date window
 cst_tz = pytz.timezone("US/Central")
 MAY_START_CST = cst_tz.localize(datetime(2024, 5, 1, 0, 0))
 MAY_END_CST = cst_tz.localize(datetime(2024, 6, 1, 0, 0))
-
-# Convert to UTC for querying MongoDB
 MAY_START_UTC = MAY_START_CST.astimezone(pytz.UTC)
 MAY_END_UTC = MAY_END_CST.astimezone(pytz.UTC)
 
-grouped_data = defaultdict(lambda: {
-    "procedures": [],
-    "blocks": []
-})
+grouped_data = defaultdict(lambda: {"procedures": [], "blocks": []})
 
-print("🔍 Fetching primary procedures for May 2024...")
+print("🔍 Fetching procedures...")
 cursor = cases_collection.find({
     "procedures.primary": True,
     "startTime": {"$gte": MAY_START_UTC, "$lt": MAY_END_UTC},
@@ -51,6 +60,7 @@ cursor = cases_collection.find({
 })
 
 total = 0
+all_procs_by_surgeon_day = defaultdict(list)
 
 for case in cursor:
     hospitalId = case.get("hospitalId")
@@ -67,9 +77,9 @@ for case in cursor:
         end_cst = to_cst(case["endTime"])
         duration = int((end_cst - start_cst).total_seconds() / 60)
         date_key = start_cst.strftime("%Y-%m-%d")
-
         key = (date_key, hospitalId, unit, room)
-        grouped_data[key]["procedures"].append({
+
+        proc_doc = {
             "procedureId": proc.get("procedureId"),
             "procedureName": proc.get("procedureName"),
             "primaryNpi": proc.get("primaryNpi"),
@@ -80,44 +90,108 @@ for case in cursor:
             "duration": duration,
             "fin": fin,
             "createdAt": createdAt
-        })
+        }
+
+        grouped_data[key]["procedures"].append(proc_doc)
+        if proc.get("primaryNpi"):
+            all_procs_by_surgeon_day[(date_key, proc["primaryNpi"])].append({
+                "start": start_cst,
+                "end": end_cst,
+                "room": room
+            })
+
         total += 1
 
-print("📝 Upserting calendar data...")
+print("📦 Fetching blocks...")
+blocks_cursor = blocks_collection.find({})
+
+for block in blocks_cursor:
+    if not block.get("frequencies") or not block.get("hospital") or not block.get("room") or not block.get("unit"):
+        continue
+    hospitalId = f"W1-{block['hospital']}"
+    unit = block["unit"]
+    room = block["room"]
+    inactive = block.get("state", "").upper() != "ACTIVE"
+
+    owner = block.get("owner", [{}])[0]
+    npi = owner.get("npis", [None])[0]
+    provider_name = owner.get("providerNames", [None])[0]
+    print(f"Processing block for {provider_name} ({npi}) in {hospitalId} - {unit} - {room}")
+    if not npi:
+        continue
+
+    for freq in block["frequencies"]:
+        dow = freq.get("dowApplied")
+        weeks = freq.get("weeksOfMonth", [])
+        block_start_time = to_cst(freq.get("blockStartTime"))
+        block_end_time = to_cst(freq.get("blockEndTime"))
+        date_start = to_cst(freq.get("blockStartDate"))
+        date_end = to_cst(freq.get("blockEndDate"))
+
+        current = MAY_START_CST
+        while current < MAY_END_CST:
+            date_key = current.strftime("%Y-%m-%d")
+            if (
+                current.weekday() == dow and
+                get_week_of_month(current) in weeks and
+                date_start.date() <= current.date() <= date_end.date()
+            ):
+                day_start = datetime.combine(current.date(), block_start_time.time()).replace(tzinfo=cst_tz)
+                day_end = datetime.combine(current.date(), block_end_time.time()).replace(tzinfo=cst_tz)
+                block_minutes = int((day_end - day_start).total_seconds() / 60)
+
+                all_procs = all_procs_by_surgeon_day.get((date_key, npi), [])
+
+                # Total utilization (any room)
+                total_intervals = [
+                    (max(p["start"], day_start), min(p["end"], day_end))
+                    for p in all_procs if min(p["end"], day_end) > max(p["start"], day_start)
+                ]
+                total_minutes = sum(
+                    (e - s).total_seconds() // 60 for s, e in merge_intervals([(s, e) for s, e in total_intervals])
+                )
+
+                # In-room utilization
+                in_room_intervals = [
+                    (max(p["start"], day_start), min(p["end"], day_end))
+                    for p in all_procs if p["room"] == room and min(p["end"], day_end) > max(p["start"], day_start)
+                ]
+                in_room_minutes = sum(
+                    (e - s).total_seconds() // 60 for s, e in merge_intervals([(s, e) for s, e in in_room_intervals])
+                )
+
+                grouped_data[(date_key, hospitalId, unit, room)]["blocks"].append({
+                    "startTime": day_start.isoformat(),
+                    "endTime": day_end.isoformat(),
+                    "duration": block_minutes,
+                    "primaryNpi": npi,
+                    "providerName": provider_name,
+                    "inactive": inactive,
+                    "inRoomUtilization": round(in_room_minutes / block_minutes, 3) if block_minutes else 0.0,
+                    "totalUtilization": round(total_minutes / block_minutes, 3) if block_minutes else 0.0
+                })
+            current += timedelta(days=1)
+
+print("📝 Upserting calendar documents...")
 for (date, hospitalId, unit, room), data in grouped_data.items():
-    # Define the day boundaries in CST
     day_start = datetime.strptime(date, "%Y-%m-%d").replace(hour=7, minute=0, tzinfo=cst_tz)
     day_end = day_start.replace(hour=15, minute=30)
-    available_minutes = 510
 
-    # Clip procedures to surgical day and collect intervals
     intervals = []
     for proc in data["procedures"]:
         proc_start = to_cst(proc["startTime"])
         proc_end = to_cst(proc["endTime"])
-
         clipped_start = max(proc_start, day_start)
         clipped_end = min(proc_end, day_end)
-
         if clipped_end > clipped_start:
             start_min = int((clipped_start - day_start).total_seconds() / 60)
             end_min = int((clipped_end - day_start).total_seconds() / 60)
             intervals.append((start_min, end_min))
 
-    # Merge overlapping intervals
-    intervals.sort()
-    merged = []
-    for start, end in intervals:
-        if not merged or start > merged[-1][1]:
-            merged.append((start, end))
-        else:
-            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
-
-    # Calculate total unique minutes used
+    merged = merge_intervals(intervals)
     utilization_minutes = sum(end - start for start, end in merged)
-    utilization_rate = round(utilization_minutes / available_minutes, 3)
+    utilization_rate = round(utilization_minutes / 510, 3)
 
-    # Upsert the document
     calendar_collection.update_one(
         {
             "date": date,
@@ -128,13 +202,13 @@ for (date, hospitalId, unit, room), data in grouped_data.items():
         {
             "$set": {
                 "procedures": data["procedures"],
-                "blocks": [],
+                "blocks": data["blocks"],
                 "utilizationMinutes": utilization_minutes,
-                "availableMinutes": available_minutes,
+                "availableMinutes": 510,
                 "utilizationRate": utilization_rate
             }
         },
         upsert=True
     )
 
-print(f"✅ Done. {len(grouped_data)} calendar entries processed for {total} procedures.")
+print(f"✅ Done. {len(grouped_data)} calendar entries processed with procedures and blocks.")
