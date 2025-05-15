@@ -12,7 +12,6 @@ from dotenv import load_dotenv
 load_dotenv()
 
 router = APIRouter()
-
 client = MongoClient(os.getenv("MONGODB_URI"))
 db = client["surgical-analytics"]
 calendar_collection = db["calendar"]
@@ -83,27 +82,17 @@ def get_calendar_view(
     last_day = calendar.monthrange(year, month_num)[1]
     end_date = datetime(year, month_num, last_day).date()
 
-    start_date_str = start_date.strftime("%Y-%m-%d")
-    end_date_str = end_date.strftime("%Y-%m-%d")
-
-    logger.info(f"Fetching calendar for {month}, hospitalId={hospitalId}, unit={unit}")
-    logger.info(f"Date range: {start_date_str} to {end_date_str}")
-
     matching_docs = list(calendar_collection.find({
-        "date": {"$gte": start_date_str, "$lte": end_date_str},
+        "date": {"$gte": start_date.strftime("%Y-%m-%d"), "$lte": end_date.strftime("%Y-%m-%d")},
         "hospitalId": hospitalId,
         "unit": unit
     }))
 
-    logger.info(f"Found {len(matching_docs)} matching documents")
-
     all_rooms = sorted({
         doc["room"].strip().upper()
         for doc in matching_docs
-        if doc.get("room") and isinstance(doc["room"], str) and doc["room"].strip()
-        and doc.get("procedures")
+        if doc.get("room") and isinstance(doc["room"], str) and doc.get("procedures")
     })
-    logger.info(f"Detected rooms for unit={unit}: {all_rooms}")
 
     days_grid = [[] for _ in range(6)]
     grouped_by_date: Dict[str, Dict[str, Any]] = {}
@@ -131,6 +120,8 @@ def get_calendar_view(
             })
 
         for blk in doc.get("blocks", []):
+            if blk.get("inactive"):
+                continue
             time_str = format_time_range(blk.get("startTime", ""), blk.get("endTime", ""))
             grouped_by_date[date_str]["schedule"][room].append({
                 "type": "block",
@@ -183,8 +174,7 @@ def get_calendar_view(
     first_weekday = current_day.weekday()
     if first_weekday < 5:
         for i in range(first_weekday):
-            weekday_name = calendar.day_name[i]
-            days_grid[week_idx].append(empty_day(weekday_name, all_rooms))
+            days_grid[week_idx].append(empty_day(calendar.day_name[i], all_rooms))
 
     while current_day <= end_date:
         if current_day.weekday() < 5:
@@ -217,5 +207,4 @@ def get_calendar_view(
         while len(week) < 5:
             week.append(empty_day(weekdays[len(week)], all_rooms))
 
-    logger.info("✅ Calendar grid created successfully")
     return days_grid[:6]
