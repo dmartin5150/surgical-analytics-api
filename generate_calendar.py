@@ -131,8 +131,8 @@ for block in blocks_cursor:
     for freq in block["frequencies"]:
         dow = freq.get("dowApplied")
         weeks = freq.get("weeksOfMonth", [])
-        block_start_time = to_cst(freq.get("blockStartTime"))
-        block_end_time = to_cst(freq.get("blockEndTime"))
+        block_start_time = freq.get("blockStartTime")
+        block_end_time = freq.get("blockEndTime")
         date_start = to_cst(freq.get("blockStartDate"))
         date_end = to_cst(freq.get("blockEndDate"))
 
