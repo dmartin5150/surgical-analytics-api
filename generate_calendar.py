@@ -19,13 +19,19 @@ blocks_collection = db["block"]
 calendar_collection = db["calendar"]
 
 def to_cst(dt_raw) -> datetime:
+    cst = pytz.timezone("US/Central")
+
     if isinstance(dt_raw, str):
-        dt_utc = datetime.fromisoformat(dt_raw.replace("Z", "+00:00")).astimezone(pytz.UTC)
+        dt = datetime.fromisoformat(dt_raw.replace("Z", "+00:00"))
     elif isinstance(dt_raw, datetime):
-        dt_utc = dt_raw.astimezone(pytz.UTC)
+        dt = dt_raw
     else:
         raise TypeError(f"Unsupported type: {type(dt_raw)}")
-    return dt_utc.astimezone(pytz.timezone("US/Central"))
+
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=pytz.UTC)
+
+    return dt.astimezone(cst)
 
 def get_week_of_month(date: datetime) -> int:
     """Calculate Cerner-style week of month (week 1 starts on the 1st, even if before Sunday)."""
@@ -45,17 +51,17 @@ def merge_intervals(intervals):
 
 # Date window
 cst_tz = pytz.timezone("US/Central")
-MAY_START_CST = cst_tz.localize(datetime(2024, 5, 1, 0, 0))
-MAY_END_CST = cst_tz.localize(datetime(2024, 6, 1, 0, 0))
-MAY_START_UTC = MAY_START_CST.astimezone(pytz.UTC)
-MAY_END_UTC = MAY_END_CST.astimezone(pytz.UTC)
+APRIL_START_CST = cst_tz.localize(datetime(2025, 4, 1, 0, 0))
+APRIL_END_CST = cst_tz.localize(datetime(2025, 5, 1, 0, 0))
+APRIL_START_UTC = APRIL_START_CST.astimezone(pytz.UTC)
+APRIL_END_UTC = APRIL_END_CST.astimezone(pytz.UTC)
 
 grouped_data = defaultdict(lambda: {"procedures": [], "blocks": []})
 
 print("🔍 Fetching procedures...")
 cursor = cases_collection.find({
     "procedures.primary": True,
-    "startTime": {"$gte": MAY_START_UTC, "$lt": MAY_END_UTC},
+    "startTime": {"$gte": APRIL_START_UTC, "$lt": APRIL_END_UTC},
     "endTime": {"$exists": True}
 })
 
@@ -74,6 +80,7 @@ for case in cursor:
             continue
 
         start_cst = to_cst(case["startTime"])
+        print('processing time', start_cst, case["startTime"])
         end_cst = to_cst(case["endTime"])
         duration = int((end_cst - start_cst).total_seconds() / 60)
         date_key = start_cst.strftime("%Y-%m-%d")
@@ -129,8 +136,8 @@ for block in blocks_cursor:
         date_start = to_cst(freq.get("blockStartDate"))
         date_end = to_cst(freq.get("blockEndDate"))
 
-        current = MAY_START_CST
-        while current < MAY_END_CST:
+        current = APRIL_START_CST
+        while current < APRIL_END_CST:
             date_key = current.strftime("%Y-%m-%d")
             if (
                 current.weekday() == dow and

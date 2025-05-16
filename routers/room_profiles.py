@@ -14,9 +14,15 @@ db = client["surgical-analytics"]
 cases_collection = db["cases"]
 room_profiles_collection = db["room_profiles"]
 
-def get_week_of_month(date):
+# def get_week_of_month(date):
+#     first_day = date.replace(day=1)
+#     return ((date.day + first_day.weekday() - 1) // 7) + 1
+
+def get_week_of_month(date: datetime) -> int:
     first_day = date.replace(day=1)
-    return ((date.day + first_day.weekday() - 1) // 7) + 1
+    first_day_dow = first_day.weekday()  # Monday=0
+    offset = date.day + first_day_dow - 1
+    return (offset // 7) + 1
 
 @router.get("/rooms/profiles")
 def generate_room_profiles(start_date: str, end_date: str):
