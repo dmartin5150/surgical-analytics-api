@@ -11,21 +11,22 @@ router = APIRouter()
 client = MongoClient(os.getenv("MONGODB_URI"))
 db = client["surgical-analytics"]
 calendar_collection = db["calendar"]
-block_collection = db["block"]  
+block_collection = db["block"]
 
 class BlockUpdateRequest(BaseModel):
     blockId: str
     inactive: bool
+    date: str  # YYYY-MM-DD format (e.g., 2025-04-01)
 
 @router.patch("/calendar/blocks/inactive")
 def patch_block_inactive(data: BlockUpdateRequest):
-    # Update embedded block inside calendar
+    # Update the embedded block inside the correct calendar document
     calendar_result = calendar_collection.update_one(
-        {"blocks.blockId": data.blockId},
+        {"date": data.date, "blocks.blockId": data.blockId},
         {"$set": {"blocks.$.inactive": data.inactive}}
     )
 
-    # Update block document in the block collection
+    # Update top-level block document
     block_result = block_collection.update_one(
         {"_id": ObjectId(data.blockId)},
         {"$set": {"inactive": data.inactive}}
@@ -35,5 +36,6 @@ def patch_block_inactive(data: BlockUpdateRequest):
         "calendarUpdated": calendar_result.modified_count,
         "blockUpdated": block_result.modified_count,
         "blockId": data.blockId,
+        "date": data.date,
         "inactive": data.inactive
     }
