@@ -38,7 +38,7 @@ def generate_room_profiles(start_date: str, end_date: str):
 
         start_raw = case.get("startTime")
         end_raw = case.get("endTime")
-
+        print("procedure_date", procedure_date)
         if not room or not procedure_date or not start_raw or not end_raw:
             continue
 

@@ -111,7 +111,8 @@ for block in blocks_cursor:
     hospitalId = f"W1-{block['hospital']}"
     unit = block["unit"]
     room = block["room"]
-    inactive = block.get("state", "").upper() != "ACTIVE"
+    inactive = block.get("inactive", False)
+
 
     owner = block.get("owner", [{}])[0]
     npi = owner.get("npis", [None])[0]
