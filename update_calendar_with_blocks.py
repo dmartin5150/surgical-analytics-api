@@ -10,15 +10,11 @@ db = client["surgical-analytics"]
 calendar_collection = db["calendar"]
 block_collection = db["block"]
 
-def get_week_of_month(date_obj: datetime) -> int:
-    first_day = date_obj.replace(day=1)
-    first_sunday = first_day
-    while first_sunday.weekday() != 6:  # Sunday = 6
-        first_sunday += timedelta(days=1)
-    if date_obj < first_sunday:
-        return 1
-    delta_days = (date_obj - first_sunday).days
-    return (delta_days // 7) + 2
+def get_week_of_month(date: datetime) -> int:
+    """Calculate Cerner-style week of month (week 1 starts on the 1st, even if before Sunday)."""
+    first_day = date.replace(day=1)
+    adjusted_dom = date.day + first_day.weekday()
+    return ((adjusted_dom - 1) // 7) + 1
 
 def has_overlap(blocks):
     def parse_time(t): return datetime.strptime(t, "%Y-%m-%dT%H:%M:%S-05:00")
@@ -30,11 +26,11 @@ def has_overlap(blocks):
             return True
     return False
 
-may_start = datetime(2024, 5, 1)
-may_end = datetime(2024, 5, 31)
+april_start = datetime(2025, 4, 1)
+april_end = datetime(2025, 5, 31)
 
 calendar_docs = list(calendar_collection.find({
-    "date": {"$gte": may_start.strftime("%Y-%m-%d"), "$lte": may_end.strftime("%Y-%m-%d")}
+    "date": {"$gte": april_start.strftime("%Y-%m-%d"), "$lte": april_end.strftime("%Y-%m-%d")}
 }))
 
 blocks = list(block_collection.find({"type": "Surgeon"}))
