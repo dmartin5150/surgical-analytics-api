@@ -38,7 +38,7 @@ blocks = list(block_collection.find({"type": "Surgeon"}))
 for doc in calendar_docs:
     date_str = doc["date"]
     date_obj = datetime.strptime(date_str, "%Y-%m-%d")
-    dow = date_obj.weekday()
+    dow = date_obj.weekday() - 1  # Cerner-style Monday = 0
     wom = get_week_of_month(date_obj)
 
     matching_blocks = []
@@ -72,7 +72,8 @@ for doc in calendar_docs:
 
             block_start = freq["blockStartTime"].strftime("%H:%M")
             block_end = freq["blockEndTime"].strftime("%H:%M")
-            matching_blocks.append({
+
+            block_entry = {
                 "startTime": f"{date_str}T{block_start}:00-05:00",
                 "endTime": f"{date_str}T{block_end}:00-05:00",
                 "providerName": providerName,
@@ -80,10 +81,13 @@ for doc in calendar_docs:
                 "date": date_str,
                 "dow": dow,
                 "wom": wom,
-                "blockId": str(block["_id"]),
+                "blockId": str(block.get("_id")) if block.get("_id") else "missing",
                 "status": "unknown",
                 "source": "cerner"
-            })
+            }
+
+            print(f"✅ Adding block for {providerName} on {date_str}, ID: {block_entry['blockId']}")
+            matching_blocks.append(block_entry)
 
     if matching_blocks:
         # Clear old blocks and flags

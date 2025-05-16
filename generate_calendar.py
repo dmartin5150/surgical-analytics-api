@@ -80,7 +80,6 @@ for case in cursor:
             continue
 
         start_cst = to_cst(case["startTime"])
-        print('processing time', start_cst, case["startTime"])
         end_cst = to_cst(case["endTime"])
         duration = int((end_cst - start_cst).total_seconds() / 60)
         date_key = start_cst.strftime("%Y-%m-%d")
@@ -115,21 +114,20 @@ blocks_cursor = blocks_collection.find({})
 for block in blocks_cursor:
     if not block.get("frequencies") or not block.get("hospital") or not block.get("room") or not block.get("unit"):
         continue
+
     hospitalId = f"W1-{block['hospital']}"
     unit = block["unit"]
     room = block["room"]
     inactive = block.get("inactive", False)
 
-
     owner = block.get("owner", [{}])[0]
     npi = owner.get("npis", [None])[0]
     provider_name = owner.get("providerNames", [None])[0]
-    print(f"Processing block for {provider_name} ({npi}) in {hospitalId} - {unit} - {room}")
     if not npi:
         continue
 
     for freq in block["frequencies"]:
-        dow = freq.get("dowApplied")
+        dow = freq.get("dowApplied") - 1
         weeks = freq.get("weeksOfMonth", [])
         block_start_time = freq.get("blockStartTime")
         block_end_time = freq.get("blockEndTime")
@@ -150,7 +148,6 @@ for block in blocks_cursor:
 
                 all_procs = all_procs_by_surgeon_day.get((date_key, npi), [])
 
-                # Total utilization (any room)
                 total_intervals = [
                     (max(p["start"], day_start), min(p["end"], day_end))
                     for p in all_procs if min(p["end"], day_end) > max(p["start"], day_start)
@@ -159,7 +156,6 @@ for block in blocks_cursor:
                     (e - s).total_seconds() // 60 for s, e in merge_intervals([(s, e) for s, e in total_intervals])
                 )
 
-                # In-room utilization
                 in_room_intervals = [
                     (max(p["start"], day_start), min(p["end"], day_end))
                     for p in all_procs if p["room"] == room and min(p["end"], day_end) > max(p["start"], day_start)
@@ -169,6 +165,7 @@ for block in blocks_cursor:
                 )
 
                 grouped_data[(date_key, hospitalId, unit, room)]["blocks"].append({
+                    "blockId": str(block["_id"]),
                     "startTime": day_start.isoformat(),
                     "endTime": day_end.isoformat(),
                     "duration": block_minutes,
