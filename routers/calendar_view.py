@@ -28,6 +28,7 @@ def empty_day(weekday: str, all_rooms: list) -> Dict[str, Any]:
         "date": None,
         "weekday": weekday,
         "isCurrentMonth": False,
+        "totalRooms": len(all_rooms),
         "schedule": [
             {"room": room, "schedule": []} for room in all_rooms
         ],
@@ -84,6 +85,7 @@ def get_calendar_view(
                 "date": date_str,
                 "weekday": weekday,
                 "isCurrentMonth": True,
+                "totalRooms": len(all_rooms),
                 "schedule": defaultdict(list),
                 "utilization": {
                     "overall": 0.0,
@@ -116,12 +118,10 @@ def get_calendar_view(
                 "primaryNpi": blk.get("primaryNpi", None)
             })
 
-        # Populate room utilization
         room_util = doc.get("utilizationRate")
         if room_util is not None:
             grouped_by_date[date_str]["utilization"]["rooms"][room] = round(room_util, 3)
 
-    # Compute overall utilization per day
     for date_str, data in grouped_by_date.items():
         room_values = list(data["utilization"]["rooms"].values())
         if room_values:
@@ -136,7 +136,6 @@ def get_calendar_view(
             for room in all_rooms
         ]
 
-    # Build week grid
     week_idx = 0
     current_day = start_date
 
@@ -156,19 +155,7 @@ def get_calendar_view(
             if date_str in grouped_by_date:
                 days_grid[week_idx].append(grouped_by_date[date_str])
             else:
-                days_grid[week_idx].append({
-                    "date": date_str,
-                    "weekday": weekday_name,
-                    "isCurrentMonth": True,
-                    "schedule": [
-                        {"room": room, "schedule": []}
-                        for room in all_rooms
-                    ],
-                    "utilization": {
-                        "overall": 0.0,
-                        "rooms": {room: 0.0 for room in all_rooms}
-                    }
-                })
+                days_grid[week_idx].append(empty_day(weekday_name, all_rooms))
 
         current_day += timedelta(days=1)
 
