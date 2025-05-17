@@ -40,16 +40,18 @@ def empty_day(weekday: str, all_rooms: list) -> Dict[str, Any]:
 
 def format_time_range(start: Any, end: Any) -> str:
     try:
-        start_dt = parser.parse(start) if isinstance(start, str) else start
-        end_dt = parser.parse(end) if isinstance(end, str) else end
+        if not start or not end:
+            raise ValueError("Missing start or end time")
 
-        if not isinstance(start_dt, datetime) or not isinstance(end_dt, datetime):
-            raise ValueError("Invalid datetime format")
+        # Use directly if already datetime; otherwise parse
+        start_dt = start if isinstance(start, datetime) else parser.parse(str(start))
+        end_dt = end if isinstance(end, datetime) else parser.parse(str(end))
 
         return f"{start_dt.strftime('%H:%M')} - {end_dt.strftime('%H:%M')}"
     except Exception as e:
         logger.warning(f"Time format error: {e}")
         return ""
+
 
 
 @router.get("/calendar/view")
