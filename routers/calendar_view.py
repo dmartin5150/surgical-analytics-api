@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Query
 from pymongo import MongoClient
-from datetime import datetime, timedelta, time
+from datetime import datetime, timedelta
 from typing import Dict, Any
 import calendar
 import os
@@ -49,12 +49,11 @@ def format_time_range(start: str, end: str) -> str:
 
 @router.get("/calendar/view")
 def get_calendar_view(
-    month: str = Query(..., example="2024-05"),
+    month: str = Query(..., example="2025-04"),
     hospitalId: str = Query(...),
     unit: str = Query(...)
 ):
     weekdays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
-
     year, month_num = map(int, month.split("-"))
     start_date = datetime(year, month_num, 1).date()
     last_day = calendar.monthrange(year, month_num)[1]
@@ -93,6 +92,7 @@ def get_calendar_view(
                 }
             }
 
+        # Add procedures
         for proc in doc.get("procedures", []):
             time_str = format_time_range(proc.get("startTime", ""), proc.get("endTime", ""))
             grouped_by_date[date_str]["schedule"][room].append({
@@ -104,6 +104,7 @@ def get_calendar_view(
                 "primaryNpi": proc.get("primaryNpi", None)
             })
 
+        # Add blocks
         for blk in doc.get("blocks", []):
             time_str = format_time_range(blk.get("startTime", ""), blk.get("endTime", ""))
             grouped_by_date[date_str]["schedule"][room].append({
@@ -113,15 +114,17 @@ def get_calendar_view(
                 "room": room,
                 "inactive": blk.get("inactive", False),
                 "inRoomUtilization": blk.get("inRoomUtilization", 0.0),
-                "totalUtilization": blk.get("totalUtilization", 0.0),
+                "anywhereUtilization": blk.get("anywhereUtilization", 0.0),
                 "duration": blk.get("duration", 0),
-                "primaryNpi": blk.get("primaryNpi", None)
+                "primaryNpi": blk.get("npi", None)
             })
 
+        # Populate per-room utilization (for room view, not block)
         room_util = doc.get("utilizationRate")
         if room_util is not None:
             grouped_by_date[date_str]["utilization"]["rooms"][room] = round(room_util, 3)
 
+    # Calculate overall utilization and flatten schedule
     for date_str, data in grouped_by_date.items():
         room_values = list(data["utilization"]["rooms"].values())
         if room_values:
@@ -136,6 +139,7 @@ def get_calendar_view(
             for room in all_rooms
         ]
 
+    # Grid setup
     week_idx = 0
     current_day = start_date
 
@@ -159,6 +163,7 @@ def get_calendar_view(
 
         current_day += timedelta(days=1)
 
+    # Ensure each week has 5 weekdays
     for week in days_grid:
         while len(week) < 5:
             week.append(empty_day(weekdays[len(week)], all_rooms))
