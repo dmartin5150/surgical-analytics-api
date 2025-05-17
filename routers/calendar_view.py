@@ -16,7 +16,7 @@ client = MongoClient(os.getenv("MONGODB_URI"))
 db = client["surgical-analytics"]
 calendar_collection = db["calendar"]
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("routers.calendar_view")
 logging.basicConfig(level=logging.INFO)
 
 def get_weekday(date_str: str) -> str:
@@ -29,21 +29,18 @@ def empty_day(weekday: str, all_rooms: list) -> Dict[str, Any]:
         "weekday": weekday,
         "isCurrentMonth": False,
         "totalRooms": len(all_rooms),
-        "schedule": [
-            {"room": room, "schedule": []} for room in all_rooms
-        ],
+        "schedule": [{"room": room, "schedule": []} for room in all_rooms],
         "utilization": {
             "overall": 0.0,
             "rooms": {room: 0.0 for room in all_rooms}
         }
     }
 
-def format_time_range(start: Any, end: Any) -> str:
+def format_time_range(start: Any, end: Any, context: str = "") -> str:
     try:
         if not start or not end:
-            raise ValueError("Missing start or end time")
+            raise ValueError(f"Missing start or end time in context: {context} → start: {start}, end: {end}")
 
-        # Use directly if already datetime; otherwise parse
         start_dt = start if isinstance(start, datetime) else parser.parse(str(start))
         end_dt = end if isinstance(end, datetime) else parser.parse(str(end))
 
@@ -51,8 +48,6 @@ def format_time_range(start: Any, end: Any) -> str:
     except Exception as e:
         logger.warning(f"Time format error: {e}")
         return ""
-
-
 
 @router.get("/calendar/view")
 def get_calendar_view(
@@ -101,7 +96,7 @@ def get_calendar_view(
 
         # Add procedures
         for proc in doc.get("procedures", []):
-            time_str = format_time_range(proc.get("startTime", ""), proc.get("endTime", ""))
+            time_str = format_time_range(proc.get("startTime"), proc.get("endTime"), f"procedure: {proc}")
             grouped_by_date[date_str]["schedule"][room].append({
                 "type": "case",
                 "time": time_str,
@@ -113,7 +108,7 @@ def get_calendar_view(
 
         # Add blocks
         for blk in doc.get("blocks", []):
-            time_str = format_time_range(blk.get("startTime", ""), blk.get("endTime", ""))
+            time_str = format_time_range(blk.get("startTime"), blk.get("endTime"), f"block: {blk}")
             grouped_by_date[date_str]["schedule"][room].append({
                 "type": "block",
                 "time": time_str,
@@ -126,31 +121,28 @@ def get_calendar_view(
                 "primaryNpi": blk.get("npi", None)
             })
 
-        # Populate per-room utilization (for room view, not block)
+        # Per-room (non-block-specific) utilization
         room_util = doc.get("utilizationRate")
         if room_util is not None:
             grouped_by_date[date_str]["utilization"]["rooms"][room] = round(room_util, 3)
 
-    # Calculate overall utilization and flatten schedule
+    # Finalize daily data
     for date_str, data in grouped_by_date.items():
         room_values = list(data["utilization"]["rooms"].values())
         if room_values:
             data["utilization"]["overall"] = round(sum(room_values) / len(room_values), 3)
 
-        room_schedule_map = {
-            room: sched for room, sched in data["schedule"].items()
-        }
-
+        room_schedule_map = data["schedule"]
         data["schedule"] = [
             {"room": room, "schedule": room_schedule_map.get(room, [])}
             for room in all_rooms
         ]
 
-    # Grid setup
+    # Calendar grid setup
     week_idx = 0
     current_day = start_date
-
     first_weekday = current_day.weekday()
+
     if first_weekday < 5:
         for i in range(first_weekday):
             days_grid[week_idx].append(empty_day(calendar.day_name[i], all_rooms))
@@ -170,7 +162,6 @@ def get_calendar_view(
 
         current_day += timedelta(days=1)
 
-    # Ensure each week has 5 weekdays
     for week in days_grid:
         while len(week) < 5:
             week.append(empty_day(weekdays[len(week)], all_rooms))
