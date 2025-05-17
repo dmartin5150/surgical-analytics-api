@@ -98,7 +98,8 @@ def get_calendar_view(
                 "time": time_str,
                 "provider": proc.get("providerName", ""),
                 "room": room,
-                "duration": blk.get("duration", 0),
+                "duration": proc.get("duration", 0),
+                "primaryNpi": proc.get("primaryNpi", None)
             })
 
         for blk in doc.get("blocks", []):
