@@ -34,7 +34,6 @@ def to_cst(dt_raw) -> datetime:
     return dt.astimezone(cst)
 
 def get_week_of_month(date: datetime) -> int:
-    """Calculate Cerner-style week of month (week 1 starts on the 1st, even if before Sunday)."""
     first_day = date.replace(day=1)
     adjusted_dom = date.day + first_day.weekday()
     return ((adjusted_dom - 1) // 7) + 1
@@ -57,6 +56,17 @@ APRIL_START_UTC = APRIL_START_CST.astimezone(pytz.UTC)
 APRIL_END_UTC = APRIL_END_CST.astimezone(pytz.UTC)
 
 grouped_data = defaultdict(lambda: {"procedures": [], "blocks": []})
+
+# 🔢 Pre-compute total rooms per hospitalId + unit
+room_sets = defaultdict(set)
+for case in cases_collection.find({}, {"hospitalId": 1, "unit": 1, "room": 1}):
+    hosp = case.get("hospitalId")
+    unit = case.get("unit")
+    room = case.get("room")
+    if hosp and unit and room:
+        room_sets[(hosp, unit)].add(room)
+
+room_counts = {key: len(rooms) for key, rooms in room_sets.items()}
 
 print("🔍 Fetching procedures...")
 cursor = cases_collection.find({
@@ -153,7 +163,7 @@ for block in blocks_cursor:
                     for p in all_procs if min(p["end"], day_end) > max(p["start"], day_start)
                 ]
                 total_minutes = sum(
-                    (e - s).total_seconds() // 60 for s, e in merge_intervals([(s, e) for s, e in total_intervals])
+                    (e - s).total_seconds() // 60 for s, e in merge_intervals(total_intervals)
                 )
 
                 in_room_intervals = [
@@ -161,7 +171,7 @@ for block in blocks_cursor:
                     for p in all_procs if p["room"] == room and min(p["end"], day_end) > max(p["start"], day_start)
                 ]
                 in_room_minutes = sum(
-                    (e - s).total_seconds() // 60 for s, e in merge_intervals([(s, e) for s, e in in_room_intervals])
+                    (e - s).total_seconds() // 60 for s, e in merge_intervals(in_room_intervals)
                 )
 
                 grouped_data[(date_key, hospitalId, unit, room)]["blocks"].append({
@@ -210,7 +220,8 @@ for (date, hospitalId, unit, room), data in grouped_data.items():
                 "blocks": data["blocks"],
                 "utilizationMinutes": utilization_minutes,
                 "availableMinutes": 510,
-                "utilizationRate": utilization_rate
+                "utilizationRate": utilization_rate,
+                "totalRooms": room_counts.get((hospitalId, unit), 0)
             }
         },
         upsert=True
