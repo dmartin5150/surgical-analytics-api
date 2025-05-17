@@ -11,7 +11,6 @@ calendar_collection = db["calendar"]
 block_collection = db["block"]
 
 def get_week_of_month(date: datetime) -> int:
-    """Calculate Cerner-style week of month (week 1 starts on the 1st, even if before Sunday)."""
     first_day = date.replace(day=1)
     adjusted_dom = date.day + first_day.weekday()
     return ((adjusted_dom - 1) // 7) + 1
@@ -38,15 +37,15 @@ blocks = list(block_collection.find({"type": "Surgeon"}))
 for doc in calendar_docs:
     date_str = doc["date"]
     date_obj = datetime.strptime(date_str, "%Y-%m-%d")
-    dow = date_obj.weekday() - 1  # Cerner-style Monday = 0
+    dow = date_obj.weekday()
     wom = get_week_of_month(date_obj)
+    unit = doc.get("unit")
+    room = doc.get("room")
 
     matching_blocks = []
 
     for block in blocks:
-        if block.get("unit") != doc.get("unit"):
-            continue
-        if block.get("room") != doc.get("room"):
+        if block.get("unit") != unit or block.get("room") != room:
             continue
 
         owner_list = block.get("owner", [])
@@ -70,27 +69,32 @@ for doc in calendar_docs:
             if not (freq["blockStartDate"].date() <= date_obj.date() <= freq["blockEndDate"].date()):
                 continue
 
-            block_start = freq["blockStartTime"].strftime("%H:%M")
-            block_end = freq["blockEndTime"].strftime("%H:%M")
+            start_time_obj = freq["blockStartTime"]
+            end_time_obj = freq["blockEndTime"]
+
+            # Attach the date and timezone
+            block_start = datetime.combine(date_obj.date(), start_time_obj.time())
+            block_end = datetime.combine(date_obj.date(), end_time_obj.time())
+            duration = int((block_end - block_start).total_seconds() // 60)
 
             block_entry = {
-                "startTime": f"{date_str}T{block_start}:00-05:00",
-                "endTime": f"{date_str}T{block_end}:00-05:00",
+                "startTime": block_start.strftime("%Y-%m-%dT%H:%M:%S-05:00"),
+                "endTime": block_end.strftime("%Y-%m-%dT%H:%M:%S-05:00"),
                 "providerName": providerName,
                 "npi": npi,
                 "date": date_str,
                 "dow": dow,
                 "wom": wom,
+                "duration": duration,
                 "blockId": str(block.get("_id")) if block.get("_id") else "missing",
                 "status": "unknown",
                 "source": "cerner"
             }
 
-            print(f"✅ Adding block for {providerName} on {date_str}, ID: {block_entry['blockId']}")
+            print(f"✅ Adding block for {providerName} on {date_str} with duration {duration} mins")
             matching_blocks.append(block_entry)
 
     if matching_blocks:
-        # Clear old blocks and flags
         calendar_collection.update_one(
             {"_id": doc["_id"]},
             {"$unset": {
@@ -99,14 +103,11 @@ for doc in calendar_docs:
                 "hasBlockOverlap": ""
             }}
         )
-
-        # Push new blocks
         calendar_collection.update_one(
             {"_id": doc["_id"]},
             {"$push": {"blocks": {"$each": matching_blocks}}}
         )
 
-        # Set flags if needed
         flags = {}
         if len(matching_blocks) > 1:
             flags["hasMultipleBlocks"] = True
@@ -119,4 +120,4 @@ for doc in calendar_docs:
                 {"$set": flags}
             )
 
-print("✅ Finished updating calendar documents with block data.")
+print("✅ Finished updating calendar documents with block data including duration.")
