@@ -97,7 +97,8 @@ def get_calendar_view(
                 "type": "case",
                 "time": time_str,
                 "provider": proc.get("providerName", ""),
-                "room": room
+                "room": room,
+                "duration": blk.get("duration", 0),
             })
 
         for blk in doc.get("blocks", []):
