@@ -12,6 +12,7 @@ from routers import calendar_qa
 from routers import calendar_view
 from routers import calendar_blocks  
 from routers import calendar_patch
+from routers import providers  
 # Load env variables
 load_dotenv()
 
@@ -81,6 +82,7 @@ app.include_router(calendar_view.router)
 app.include_router(calendar_qa.router, prefix="/api")
 app.include_router(calendar_blocks.router,prefix="/api")
 app.include_router(calendar_patch.router,prefix="/api")
+app.include_router(providers.router)
 
 if __name__ == "__main__":
     import uvicorn
