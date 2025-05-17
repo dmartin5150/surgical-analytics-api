@@ -49,6 +49,7 @@ for case in cursor:
     unit = case.get("unit")
     room = case.get("room")
     date = case.get("startTime")
+
     if not (hospitalId and unit and room and date):
         continue
 
@@ -66,15 +67,21 @@ for case in cursor:
                 duration = max(duration, freq.get("duration", 0))
 
         if duration == 0:
-            # fallback if frequency.duration is not available
+            # Fallback: compute from case start and end time
             start = case.get("startTime")
             end = case.get("endTime")
             if start and end:
                 duration = int((end - start).total_seconds() / 60)
 
+        # Always store startTime and endTime from the case level
+        start = case.get("startTime")
+        end = case.get("endTime")
+
         grouped_data[key]["procedures"].append({
             **proc,
-            "duration": duration
+            "duration": duration,
+            "startTime": start,
+            "endTime": end
         })
 
 print("📅 Calculating utilization and updating calendar...")
