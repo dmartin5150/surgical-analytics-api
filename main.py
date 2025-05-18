@@ -82,7 +82,7 @@ app.include_router(calendar_view.router)
 app.include_router(calendar_qa.router, prefix="/api")
 app.include_router(calendar_blocks.router,prefix="/api")
 app.include_router(calendar_patch.router,prefix="/api")
-app.include_router(providers.router)
+app.include_router(providers.router,prefix="/api")
 
 if __name__ == "__main__":
     import uvicorn
