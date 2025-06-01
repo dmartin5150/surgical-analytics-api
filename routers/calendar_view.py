@@ -8,6 +8,7 @@ import logging
 from collections import defaultdict
 from dateutil import parser
 from dotenv import load_dotenv
+from utils.timezone_utils import to_cst  # ⬅️ Make sure this path is correct
 
 load_dotenv()
 
@@ -19,9 +20,11 @@ calendar_collection = db["calendar"]
 logger = logging.getLogger("routers.calendar_view")
 logging.basicConfig(level=logging.INFO)
 
+
 def get_weekday(date_str: str) -> str:
     dt = datetime.strptime(date_str, "%Y-%m-%d").date()
     return calendar.day_name[dt.weekday()]
+
 
 def empty_day(weekday: str, all_rooms: list) -> Dict[str, Any]:
     return {
@@ -36,6 +39,7 @@ def empty_day(weekday: str, all_rooms: list) -> Dict[str, Any]:
         }
     }
 
+
 def format_time_range(start: Any, end: Any, context: str = "") -> str:
     try:
         if not start or not end:
@@ -48,6 +52,7 @@ def format_time_range(start: Any, end: Any, context: str = "") -> str:
     except Exception as e:
         logger.warning(f"Time format error: {e}")
         return ""
+
 
 @router.get("/calendar/view")
 def get_calendar_view(
@@ -94,9 +99,18 @@ def get_calendar_view(
                 }
             }
 
-        # Add procedures
+        # Convert and add procedures (UTC → CST)
         for proc in doc.get("procedures", []):
-            time_str = format_time_range(proc.get("startTime"), proc.get("endTime"), f"procedure: {proc}")
+            try:
+                start_cst = to_cst(proc.get("startTime"))
+                end_cst = to_cst(proc.get("endTime"))
+            except Exception as e:
+                logger.warning(f"Procedure time conversion error: {e} – {proc}")
+                start_cst = proc.get("startTime")
+                end_cst = proc.get("endTime")
+
+            time_str = format_time_range(start_cst, end_cst, f"procedure: {proc}")
+
             grouped_by_date[date_str]["schedule"][room].append({
                 "type": "case",
                 "time": time_str,
@@ -106,7 +120,7 @@ def get_calendar_view(
                 "primaryNpi": proc.get("primaryNpi", None)
             })
 
-        # Add blocks
+        # Add blocks (assume already in CST)
         for blk in doc.get("blocks", []):
             time_str = format_time_range(blk.get("startTime"), blk.get("endTime"), f"block: {blk}")
             grouped_by_date[date_str]["schedule"][room].append({
@@ -121,7 +135,7 @@ def get_calendar_view(
                 "primaryNpi": blk.get("npi", None)
             })
 
-        # Per-room (non-block-specific) utilization
+        # Per-room utilization
         room_util = doc.get("utilizationRate")
         if room_util is not None:
             grouped_by_date[date_str]["utilization"]["rooms"][room] = round(room_util, 3)
