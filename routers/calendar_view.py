@@ -8,7 +8,7 @@ import logging
 from collections import defaultdict
 from dateutil import parser
 from dotenv import load_dotenv
-from utils.timezone_utils import to_cst  # ⬅️ Make sure this path is correct
+from utils.time_utils import to_cst  # ⬅️ Make sure this path is correct
 
 load_dotenv()
 
