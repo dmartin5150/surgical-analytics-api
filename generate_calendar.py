@@ -1,5 +1,5 @@
 from pymongo import MongoClient
-from datetime import datetime, timedelta
+from datetime import datetime
 from collections import defaultdict
 from dotenv import load_dotenv
 import pytz
@@ -15,13 +15,12 @@ if not MONGO_URI:
 client = MongoClient(MONGO_URI)
 db = client["surgical-analytics"]
 cases_collection = db["cases"]
-blocks_collection = db["block"]
 calendar_collection = db["calendar"]
 
 # Constants
 cst_tz = pytz.timezone("US/Central")
-APRIL_START = cst_tz.localize(datetime(2025, 4, 1))
-MAY_START = cst_tz.localize(datetime(2025, 5, 1))
+APRIL_START = datetime(2025, 4, 1, tzinfo=pytz.UTC)
+MAY_START = datetime(2025, 5, 1, tzinfo=pytz.UTC)
 
 # Precompute total rooms per (hospitalId, unit)
 room_sets = defaultdict(set)
@@ -34,8 +33,8 @@ for case in cases_collection.find({}, {"hospitalId": 1, "unit": 1, "room": 1}):
 
 room_counts = {key: len(rooms) for key, rooms in room_sets.items()}
 
-# Build grouped structure
-grouped_data = defaultdict(lambda: {"procedures": [], "blocks": []})
+# Group cases
+grouped_data = defaultdict(lambda: {"procedures": []})
 
 print("🔍 Fetching procedures...")
 cursor = cases_collection.find({
@@ -48,46 +47,57 @@ for case in cursor:
     hospitalId = case.get("hospitalId")
     unit = case.get("unit")
     room = case.get("room")
-    date = case.get("startTime")
+    start = case.get("startTime")
 
-    if not (hospitalId and unit and room and date):
+    if not (hospitalId and unit and room and start):
         continue
 
-    date_key = date.astimezone(cst_tz).strftime("%Y-%m-%d")
+    date_key = start.astimezone(cst_tz).strftime("%Y-%m-%d")
     key = (date_key, hospitalId, unit, room)
 
     for proc in case.get("procedures", []):
         if not proc.get("primary"):
             continue
 
-        # Prefer frequency.duration if available
-        duration = 0
-        if proc.get("frequencies"):
-            for freq in proc["frequencies"]:
-                duration = max(duration, freq.get("duration", 0))
+        start_utc = case.get("startTime").replace(tzinfo=pytz.UTC)
+        end_utc = case.get("endTime").replace(tzinfo=pytz.UTC)
 
-        if duration == 0:
-            # Fallback: compute from case start and end time
-            start = case.get("startTime")
-            end = case.get("endTime")
-            if start and end:
-                duration = int((end - start).total_seconds() / 60)
-
-        # Always store startTime and endTime from the case level
-        start = case.get("startTime")
-        end = case.get("endTime")
+        duration = int((end_utc - start_utc).total_seconds() / 60)
 
         grouped_data[key]["procedures"].append({
             **proc,
             "duration": duration,
-            "startTime": start,
-            "endTime": end
+            "startTime": start_utc,
+            "endTime": end_utc
         })
 
 print("📅 Calculating utilization and updating calendar...")
 for (date, hospitalId, unit, room), data in grouped_data.items():
     procedures = data["procedures"]
-    total_minutes = sum(proc.get("duration", 0) for proc in procedures)
+
+    prime_time_start = cst_tz.localize(datetime.strptime(f"{date} 07:00", "%Y-%m-%d %H:%M"))
+    prime_time_end = cst_tz.localize(datetime.strptime(f"{date} 15:30", "%Y-%m-%d %H:%M"))
+
+    clipped_ranges = []
+    for proc in procedures:
+        start_cst = proc["startTime"].astimezone(cst_tz)
+        end_cst = proc["endTime"].astimezone(cst_tz)
+
+        latest_start = max(start_cst, prime_time_start)
+        earliest_end = min(end_cst, prime_time_end)
+
+        if latest_start < earliest_end:
+            clipped_ranges.append((latest_start, earliest_end))
+
+    clipped_ranges.sort()
+    merged_ranges = []
+    for start, end in clipped_ranges:
+        if not merged_ranges or start > merged_ranges[-1][1]:
+            merged_ranges.append((start, end))
+        else:
+            merged_ranges[-1] = (merged_ranges[-1][0], max(merged_ranges[-1][1], end))
+
+    total_minutes = sum(int((end - start).total_seconds() / 60) for start, end in merged_ranges)
     utilization_rate = round(total_minutes / 510, 3)
 
     calendar_collection.update_one(

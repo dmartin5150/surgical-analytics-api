@@ -14,9 +14,7 @@ db = client["surgical-analytics"]
 cases_collection = db["cases"]
 room_profiles_collection = db["room_profiles"]
 
-# def get_week_of_month(date):
-#     first_day = date.replace(day=1)
-#     return ((date.day + first_day.weekday() - 1) // 7) + 1
+
 
 def get_week_of_month(date: datetime) -> int:
     first_day = date.replace(day=1)
